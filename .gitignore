@@ -1,0 +1,90 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+*.tmp
+*.orig
+.DS_Store
+Thumbs.db
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# VS Code (workspace-specific settings)
+.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.fvm/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+/build/
+/coverage/
+flutter_*.png
+version.json
+
+# Generated configuration
+**/Generated.xcconfig
+**/GeneratedPluginRegistrant.*
+**/generated_plugin_registrant.dart
+**/flutter_export_environment.sh
+
+# Android related
+/android/.gradle/
+/android/captures/
+/android/local.properties
+/android/key.properties
+/android/app/*.keystore
+/android/app/*.jks
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# iOS related
+/ios/Flutter/App.framework
+/ios/Flutter/Flutter.framework
+/ios/Flutter/Generated.xcconfig
+/ios/Flutter/ephemeral/
+/ios/Flutter/flutter_export_environment.sh
+/ios/.symlinks/
+/ios/Pods/
+/ios/ServiceDefinitions.json
+/ios/Runner.xcworkspace/
+
+# macOS related
+/macos/Flutter/ephemeral/
+/macos/Pods/
+/macos/Runner.xcworkspace/
+
+# Linux related
+/linux/flutter/ephemeral/
+
+# Windows related
+/windows/flutter/ephemeral/
+/windows/.vs/
+/windows/Runner/Runner.vcxproj.user
+
+# Web related
+/web/.dart_tool/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
