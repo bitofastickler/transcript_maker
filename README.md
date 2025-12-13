@@ -1,16 +1,24 @@
 # transcript_maker
 
-A new Flutter project.
+Homeschool transcript builder built with Flutter, preparing for Supabase-backed persistence and Google-authenticated users.
 
-## Getting Started
+## Development Setup
 
-This project is a starting point for a Flutter application.
+1. **Install tooling** – Ensure you have Flutter (3.19+) installed and added to your PATH.
+2. **Install dependencies** – Run `flutter pub get`.
+3. **Configure environment variables**  
+   - Copy `.env.example` to `.env`.  
+   - Fill in `SUPABASE_URL` and `SUPABASE_ANON_KEY` from your Supabase project (these stay local; `.env` is gitignored).
 
-A few resources to get you started if this is your first Flutter project:
+The app bootstraps environment variables via `flutter_dotenv` during `main()` before initializing Supabase.
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## Scripts
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- `flutter run` – Launch the application on the desired device/emulator.
+- `flutter test` – Run the default widget tests.
+
+## Next Steps
+
+- Add Supabase schema migrations (students, enrollments, awards, activities with owner IDs).
+- Implement Google OAuth via Supabase Auth.
+- Connect Stripe subscriptions for premium features.

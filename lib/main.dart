@@ -3,12 +3,17 @@ import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart' as pdf;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'env/env.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppEnv.load();
+  await Supabase.initialize(
+    url: AppEnv.supabaseUrl,
+    anonKey: AppEnv.supabaseAnonKey,
+  );
   runApp(const HomeschoolLedgerApp());
 }
 
