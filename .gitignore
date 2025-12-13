@@ -83,6 +83,11 @@ version.json
 # Web related
 /web/.dart_tool/
 
+# Environment configuration
+.env
+.env.*
+.envrc
+
 # Symbolication related
 app.*.symbols
 

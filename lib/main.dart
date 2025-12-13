@@ -4,7 +4,11 @@ import 'package:pdf/pdf.dart' as pdf;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
-void main() {
+import 'env/env.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await AppEnv.load();
   runApp(const HomeschoolLedgerApp());
 }
 
