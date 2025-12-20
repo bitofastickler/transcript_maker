@@ -13,6 +13,28 @@ begin
 end;
 $$ language plpgsql;
 
+-- Guard child tables so the referenced student matches the row owner.
+create or replace function public.ensure_student_owner_match()
+returns trigger as $$
+declare
+  student_owner uuid;
+begin
+  select owner_id into student_owner
+  from public.students
+  where id = new.student_id;
+
+  if not found then
+    raise exception 'Referenced student % does not exist', new.student_id;
+  end if;
+
+  if student_owner <> new.owner_id then
+    raise exception 'Owner mismatch for student %', new.student_id;
+  end if;
+
+  return new;
+end;
+$$ language plpgsql;
+
 -- Optional profile table for per-user metadata & Stripe linkage.
 create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
@@ -29,6 +51,19 @@ create table if not exists public.profiles (
 create trigger profiles_handle_updated_at
 before update on public.profiles
 for each row execute procedure public.handle_updated_at();
+
+alter table public.profiles enable row level security;
+
+create policy "Profiles viewable by owner"
+on public.profiles
+for select
+using (auth.uid() = id);
+
+create policy "Profiles updatable by owner"
+on public.profiles
+for update
+using (auth.uid() = id)
+with check (auth.uid() = id);
 
 -- Automatically create a profile row whenever a Supabase user registers.
 create or replace function public.handle_new_user()
@@ -90,7 +125,8 @@ with check (auth.uid() = owner_id);
 create policy "Students are updatable by owner"
 on public.students
 for update
-using (auth.uid() = owner_id);
+using (auth.uid() = owner_id)
+with check (auth.uid() = owner_id);
 
 create policy "Students are deletable by owner"
 on public.students
@@ -126,6 +162,10 @@ create trigger enrollments_handle_updated_at
 before update on public.enrollments
 for each row execute procedure public.handle_updated_at();
 
+create trigger enrollments_student_owner_match
+before insert or update on public.enrollments
+for each row execute procedure public.ensure_student_owner_match();
+
 alter table public.enrollments enable row level security;
 
 create policy "Enrollments viewable by owner"
@@ -141,7 +181,8 @@ with check (auth.uid() = owner_id);
 create policy "Enrollments updatable by owner"
 on public.enrollments
 for update
-using (auth.uid() = owner_id);
+using (auth.uid() = owner_id)
+with check (auth.uid() = owner_id);
 
 create policy "Enrollments deletable by owner"
 on public.enrollments
@@ -171,6 +212,10 @@ create trigger awards_handle_updated_at
 before update on public.awards
 for each row execute procedure public.handle_updated_at();
 
+create trigger awards_student_owner_match
+before insert or update on public.awards
+for each row execute procedure public.ensure_student_owner_match();
+
 alter table public.awards enable row level security;
 
 create policy "Awards viewable by owner"
@@ -186,7 +231,8 @@ with check (auth.uid() = owner_id);
 create policy "Awards updatable by owner"
 on public.awards
 for update
-using (auth.uid() = owner_id);
+using (auth.uid() = owner_id)
+with check (auth.uid() = owner_id);
 
 create policy "Awards deletable by owner"
 on public.awards
@@ -218,6 +264,10 @@ create trigger activities_handle_updated_at
 before update on public.activities
 for each row execute procedure public.handle_updated_at();
 
+create trigger activities_student_owner_match
+before insert or update on public.activities
+for each row execute procedure public.ensure_student_owner_match();
+
 alter table public.activities enable row level security;
 
 create policy "Activities viewable by owner"
@@ -233,7 +283,8 @@ with check (auth.uid() = owner_id);
 create policy "Activities updatable by owner"
 on public.activities
 for update
-using (auth.uid() = owner_id);
+using (auth.uid() = owner_id)
+with check (auth.uid() = owner_id);
 
 create policy "Activities deletable by owner"
 on public.activities
