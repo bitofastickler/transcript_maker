@@ -26,8 +26,14 @@ The app bootstraps environment variables via `flutter_dotenv` during `main()` be
 - `flutter run` - Launch the application on the desired device/emulator.
 - `flutter test` - Run the default widget tests.
 
+## Current Status
+
+- Supabase schema (tables + RLS) is live, and the Flutter app now loads/saves students, enrollments, awards, and activities through a repository layer instead of `SampleData`.
+- Google OAuth is enabled in Supabase, and the app gates access behind the `signInWithOAuth` flow (web/desktop works out-of-the-box; mobile just needs platform-specific deep links).
+- Local analyzer/test runs succeed once Supabase is initialized; remaining blockers are purely deployment-related.
+
 ## Next Steps
 
-- Implement the Supabase data repository & replace `SampleData` with real queries.
-- Add Google OAuth UI using `supabase.auth.signInWithOAuth`.
-- Integrate Stripe subscriptions and gate premium features using the `profiles` table.
+- Build the Flutter web bundle (`flutter build web`) and deploy it to a Render static site (or another host).
+- Add the Render domain to Google OAuth Authorized JavaScript origins and Supabase Auth redirect settings, then smoke-test sign-in + saving end-to-end.
+- Once hosting is stable, expand coverage (widget tests, auth guards, premium gating via the `profiles` table/Stripe) as needed.
