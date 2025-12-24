@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart' as pdf;
@@ -7,6 +9,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'env/env.dart';
 
+late final StudentRepository studentRepository;
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppEnv.load();
@@ -14,6 +18,7 @@ Future<void> main() async {
     url: AppEnv.supabaseUrl,
     anonKey: AppEnv.supabaseAnonKey,
   );
+  studentRepository = StudentRepository(Supabase.instance.client);
   runApp(const HomeschoolLedgerApp());
 }
 
@@ -29,7 +34,127 @@ class HomeschoolLedgerApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: const Color.fromARGB(232, 2, 139, 219)),
         useMaterial3: true,
       ),
-      home: const StudentsPage(),
+      home: const AuthGate(),
+    );
+  }
+}
+
+class AuthGate extends StatefulWidget {
+  const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  Session? _session;
+  StreamSubscription<AuthState>? _authSub;
+
+  @override
+  void initState() {
+    super.initState();
+    final auth = Supabase.instance.client.auth;
+    _session = auth.currentSession;
+    _authSub = auth.onAuthStateChange.listen((data) {
+      setState(() {
+        _session = data.session;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_session == null) {
+      return const AuthPage();
+    }
+    return const StudentsPage();
+  }
+}
+
+class AuthPage extends StatefulWidget {
+  const AuthPage({super.key});
+
+  @override
+  State<AuthPage> createState() => _AuthPageState();
+}
+
+class _AuthPageState extends State<AuthPage> {
+  bool _signingIn = false;
+
+  Future<void> _signInWithGoogle() async {
+    if (_signingIn) return;
+    setState(() {
+      _signingIn = true;
+    });
+    try {
+      await Supabase.instance.client.auth.signInWithOAuth(OAuthProvider.google);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to sign in: $error')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _signingIn = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Scaffold(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Card(
+            elevation: 4,
+            margin: const EdgeInsets.all(24),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.school, size: 48, color: theme.colorScheme.primary),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Sign in to Transcript Maker',
+                    style: theme.textTheme.titleLarge,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Connect with Google to access your students and transcripts.',
+                    style: theme.textTheme.bodyMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  FilledButton.icon(
+                    onPressed: _signingIn ? null : _signInWithGoogle,
+                    icon: _signingIn
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.login),
+                    label: Text(_signingIn ? 'Signing in...' : 'Sign in with Google'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -42,45 +167,109 @@ class StudentsPage extends StatefulWidget {
 }
 
 class _StudentsPageState extends State<StudentsPage> {
-  late List<StudentRecord> _students;
+  List<StudentRecord> _students = [];
+  bool _loading = true;
+  bool _mutating = false;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _students = List.of(SampleData.students);
+    unawaited(_loadStudents());
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Students')),
-      body: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemBuilder: (context, index) {
-          final student = _students[index];
-          final snapshot = TranscriptCalculator(student).build();
-          return _StudentCard(
-            student: student,
-            snapshot: snapshot,
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => StudentDetailPage(
-                  student: student,
-                  onStudentUpdated: _handleStudentUpdated,
-                  onStudentDeleted: _handleStudentDeleted,
-                ),
-              ),
-            ),
-          );
-        },
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
-        itemCount: _students.length,
+      appBar: AppBar(
+        title: const Text('Students'),
+        actions: [
+          IconButton(
+            tooltip: 'Sign out',
+            icon: const Icon(Icons.logout),
+            onPressed: _signOut,
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          if (_loading || _mutating) const LinearProgressIndicator(minHeight: 2),
+          Expanded(child: _buildBody()),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openStudentForm,
+        onPressed: (_loading || _mutating) ? null : _openStudentForm,
         icon: const Icon(Icons.person_add),
         label: const Text('Add Student'),
       ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading && _students.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_errorMessage != null && _students.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.warning_amber, size: 48),
+              const SizedBox(height: 12),
+              Text(
+                'Unable to load students',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () => _loadStudents(),
+                child: const Text('Try again'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    final listContent = _students.isEmpty
+        ? const EmptyState(message: 'No students yet. Tap "Add Student" to get started.')
+        : ListView.separated(
+            padding: const EdgeInsets.all(16),
+            itemBuilder: (context, index) {
+              final student = _students[index];
+              final snapshot = TranscriptCalculator(student).build();
+              return _StudentCard(
+                student: student,
+                snapshot: snapshot,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => StudentDetailPage(
+                      student: student,
+                      onStudentUpdated: _handleStudentUpdated,
+                      onStudentDeleted: _handleStudentDeleted,
+                      onSaveStudent: _handleSaveStudent,
+                    ),
+                  ),
+                ),
+              );
+            },
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            itemCount: _students.length,
+          );
+    return RefreshIndicator(
+      onRefresh: _refreshStudents,
+      child: _students.isEmpty
+          ? ListView(
+              padding: const EdgeInsets.all(16),
+              children: [listContent],
+            )
+          : listContent,
     );
   }
 
@@ -101,24 +290,127 @@ class _StudentsPageState extends State<StudentsPage> {
     );
     if (createdStudent == null) return;
     setState(() {
-      _students = [..._students, createdStudent];
+      _mutating = true;
     });
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Student ${createdStudent.fullName} added')),
-    );
+    try {
+      final saved = await studentRepository.createStudent(createdStudent);
+      if (!mounted) return;
+      setState(() {
+        _students = [..._students, saved];
+        _errorMessage = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Student ${saved.fullName} added')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to save student: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _mutating = false;
+        });
+      }
+    }
   }
 
-  void _handleStudentDeleted(StudentRecord student) {
+  Future<void> _handleStudentDeleted(StudentRecord student) async {
     setState(() {
       _students = [
         for (final existing in _students)
           if (existing.id != student.id) existing,
       ];
+      _mutating = true;
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Student ${student.fullName} deleted')),
-    );
+    try {
+      await studentRepository.deleteStudent(student.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Student ${student.fullName} deleted')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to delete student: $error')),
+      );
+      await _loadStudents();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _mutating = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadStudents() async {
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+    });
+    try {
+      final fetched = await studentRepository.fetchStudents();
+      if (!mounted) return;
+      setState(() {
+        _students = fetched;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _refreshStudents() => _loadStudents();
+
+  Future<StudentRecord> _handleSaveStudent(StudentRecord student) async {
+    setState(() {
+      _mutating = true;
+    });
+    try {
+      final saved = await studentRepository.saveStudent(student);
+      if (!mounted) return saved;
+      setState(() {
+        _students = [
+          for (final existing in _students)
+            if (existing.id == saved.id) saved else existing,
+        ];
+      });
+      return saved;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to save changes: $error')),
+        );
+      }
+      rethrow;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _mutating = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _signOut() async {
+    try {
+      await Supabase.instance.client.auth.signOut();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to sign out: $error')),
+      );
+    }
   }
 }
 
@@ -189,11 +481,13 @@ class StudentDetailPage extends StatefulWidget {
     required this.student,
     required this.onStudentUpdated,
     required this.onStudentDeleted,
+    required this.onSaveStudent,
   });
 
   final StudentRecord student;
   final ValueChanged<StudentRecord> onStudentUpdated;
   final ValueChanged<StudentRecord> onStudentDeleted;
+  final Future<StudentRecord> Function(StudentRecord student) onSaveStudent;
 
   @override
   State<StudentDetailPage> createState() => _StudentDetailPageState();
@@ -203,6 +497,9 @@ class _StudentDetailPageState extends State<StudentDetailPage>
     with SingleTickerProviderStateMixin {
   late StudentRecord _student;
   late TabController _tabController;
+  bool _isDirty = false;
+  bool _isSaving = false;
+  String? _saveError;
 
   @override
   void initState() {
@@ -227,9 +524,13 @@ class _StudentDetailPageState extends State<StudentDetailPage>
 
   TranscriptSnapshot get _snapshot => TranscriptCalculator(_student).build();
 
-  void _updateStudent(StudentRecord updated) {
+  void _updateStudent(StudentRecord updated, {bool markDirty = true}) {
     setState(() {
       _student = updated;
+      if (markDirty) {
+        _isDirty = true;
+        _saveError = null;
+      }
     });
     widget.onStudentUpdated(updated);
   }
@@ -549,6 +850,36 @@ class _StudentDetailPageState extends State<StudentDetailPage>
     Navigator.of(context).pop();
   }
 
+  Future<void> _saveChanges() async {
+    if (_isSaving) return;
+    setState(() {
+      _isSaving = true;
+      _saveError = null;
+    });
+    try {
+      final saved = await widget.onSaveStudent(_student);
+      _updateStudent(saved, markDirty: false);
+      setState(() {
+        _isDirty = false;
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Changes saved')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _saveError = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
+  }
+
   FloatingActionButton _buildFab() {
     switch (_tabController.index) {
       case 1:
@@ -615,33 +946,117 @@ class _StudentDetailPageState extends State<StudentDetailPage>
         ),
       ),
       floatingActionButton: _buildFab(),
-      body: Column(
+      body: Stack(
         children: [
-          StudentSummaryHeader(student: _student, snapshot: snapshot),
-          const Divider(height: 1),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
+          Column(
+            children: [
+              StudentSummaryHeader(student: _student, snapshot: snapshot),
+              const Divider(height: 1),
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: _isDirty ? 96 : 0),
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      ClassesTab(
+                        student: _student,
+                        onEditEnrollment: _editClass,
+                        onDeleteEnrollment: _deleteClass,
+                      ),
+                      AwardsTab(
+                        student: _student,
+                        onEditAward: _editAward,
+                        onDeleteAward: _deleteAward,
+                      ),
+                      ActivitiesTab(
+                        student: _student,
+                        onEditActivity: _editActivity,
+                        onDeleteActivity: _deleteActivity,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          _SaveBanner(
+            visible: _isDirty,
+            isSaving: _isSaving,
+            errorMessage: _saveError,
+            onSave: _saveChanges,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SaveBanner extends StatelessWidget {
+  const _SaveBanner({
+    required this.visible,
+    required this.isSaving,
+    required this.onSave,
+    this.errorMessage,
+  });
+
+  final bool visible;
+  final bool isSaving;
+  final VoidCallback onSave;
+  final String? errorMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!visible) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final baseStyle = theme.textTheme.bodySmall;
+    final messageStyle = errorMessage != null
+        ? baseStyle?.copyWith(color: theme.colorScheme.error)
+        : baseStyle;
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: SafeArea(
+        minimum: const EdgeInsets.all(16),
+        child: Material(
+          elevation: 10,
+          borderRadius: BorderRadius.circular(18),
+          color: theme.colorScheme.surface,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            child: Row(
               children: [
-                ClassesTab(
-                  student: _student,
-                  onEditEnrollment: _editClass,
-                  onDeleteEnrollment: _deleteClass,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Unsaved changes',
+                        style: theme.textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        errorMessage ?? 'Save to keep updates synced with Supabase.',
+                        style: messageStyle,
+                      ),
+                    ],
+                  ),
                 ),
-                AwardsTab(
-                  student: _student,
-                  onEditAward: _editAward,
-                  onDeleteAward: _deleteAward,
-                ),
-                ActivitiesTab(
-                  student: _student,
-                  onEditActivity: _editActivity,
-                  onDeleteActivity: _deleteActivity,
+                const SizedBox(width: 16),
+                FilledButton.icon(
+                  onPressed: isSaving ? null : onSave,
+                  icon: isSaving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save),
+                  label: Text(isSaving ? 'Saving' : 'Save'),
                 ),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1639,7 +2054,7 @@ class _EnrollmentFormSheetState extends State<EnrollmentFormSheet> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<GradeLevel>(
-                value: _gradeLevel,
+                initialValue: _gradeLevel,
                 decoration: const InputDecoration(labelText: 'Grade level'),
                 items: GradeLevel.values
                     .map(
@@ -1677,7 +2092,7 @@ class _EnrollmentFormSheetState extends State<EnrollmentFormSheet> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _selectedSubjectOption,
+                initialValue: _selectedSubjectOption,
                 decoration: const InputDecoration(labelText: 'Subject category'),
                 items: _subjectCategoryOptions
                     .map(
@@ -1961,7 +2376,7 @@ class _AwardFormSheetState extends State<AwardFormSheet> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<GradeLevel>(
-                value: _gradeLevel,
+                initialValue: _gradeLevel,
                 decoration: const InputDecoration(labelText: 'Grade level'),
                 items: GradeLevel.values
                     .map(
@@ -2007,7 +2422,7 @@ class _AwardFormSheetState extends State<AwardFormSheet> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _selectedCategoryOption,
+                initialValue: _selectedCategoryOption,
                 decoration: const InputDecoration(labelText: 'Category'),
                 items: _awardCategoryOptions
                     .map(
@@ -2235,7 +2650,7 @@ class _ActivityFormSheetState extends State<ActivityFormSheet> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<GradeLevel>(
-                value: _gradeLevel,
+                initialValue: _gradeLevel,
                 decoration: const InputDecoration(labelText: 'Grade level'),
                 items: GradeLevel.values
                     .map(
@@ -2265,7 +2680,7 @@ class _ActivityFormSheetState extends State<ActivityFormSheet> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _selectedActivityType,
+                initialValue: _selectedActivityType,
                 decoration: const InputDecoration(labelText: 'Activity type'),
                 items: _activityTypeOptions
                     .map(
@@ -2687,6 +3102,9 @@ class StudentRecord {
     this.enrollments = const [],
     this.awards = const [],
     this.activities = const [],
+    this.ownerId,
+    this.createdAt,
+    this.updatedAt,
   });
 
   final String id;
@@ -2701,6 +3119,9 @@ class StudentRecord {
   final List<Enrollment> enrollments;
   final List<Award> awards;
   final List<Activity> activities;
+  final String? ownerId;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
 
   String get fullName => '$firstName $lastName';
 
@@ -2716,6 +3137,9 @@ class StudentRecord {
     List<Enrollment>? enrollments,
     List<Award>? awards,
     List<Activity>? activities,
+    String? ownerId,
+    DateTime? createdAt,
+    DateTime? updatedAt,
   }) {
     return StudentRecord(
       id: id,
@@ -2730,7 +3154,52 @@ class StudentRecord {
       enrollments: enrollments ?? this.enrollments,
       awards: awards ?? this.awards,
       activities: activities ?? this.activities,
+      ownerId: ownerId ?? this.ownerId,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
+  }
+
+  factory StudentRecord.fromMap(Map<String, dynamic> row) {
+    final enrollmentsData = _asList(row['enrollments'])
+        .map((item) => Enrollment.fromMap(item))
+        .toList();
+    final awardsData =
+        _asList(row['awards']).map((item) => Award.fromMap(item)).toList();
+    final activitiesData =
+        _asList(row['activities']).map((item) => Activity.fromMap(item)).toList();
+    return StudentRecord(
+      id: row['id'] as String,
+      firstName: row['first_name'] as String,
+      lastName: row['last_name'] as String,
+      dateOfBirth: _parseDate(row['date_of_birth'])!,
+      targetGradYear: (row['target_grad_year'] as num).toInt(),
+      email: row['email'] as String?,
+      phone: row['phone'] as String?,
+      address: row['address'] as String?,
+      notes: row['notes'] as String?,
+      enrollments: enrollmentsData,
+      awards: awardsData,
+      activities: activitiesData,
+      ownerId: row['owner_id'] as String?,
+      createdAt: _parseDate(row['created_at']),
+      updatedAt: _parseDate(row['updated_at']),
+    );
+  }
+
+  Map<String, dynamic> toRow({required String ownerId}) {
+    return {
+      'id': id,
+      'owner_id': ownerId,
+      'first_name': firstName,
+      'last_name': lastName,
+      'date_of_birth': dateOfBirth.toIso8601String(),
+      'target_grad_year': targetGradYear,
+      'email': email,
+      'phone': phone,
+      'address': address,
+      'notes': notes,
+    };
   }
 }
 
@@ -2777,6 +3246,40 @@ class Enrollment {
 
   bool get countsTowardGpa => !isPassFail && gradePoints != null;
   double? get gradePoints => _gradePointTable[gradeLetter.toUpperCase()];
+
+  factory Enrollment.fromMap(Map<String, dynamic> row) {
+    return Enrollment(
+      id: row['id'] as String,
+      studentId: row['student_id'] as String,
+      gradeLevel: _gradeLevelFromValue((row['grade_level'] as num).toInt()),
+      yearLabel: row['year_label'] as String? ?? '',
+      courseTitle: row['course_title'] as String? ?? '',
+      subjectCategory: row['subject_category'] as String? ?? '',
+      description: row['description'] as String? ?? '',
+      creditHours: _parseDouble(row['credit_hours']) ?? 0,
+      gradeLetter: row['grade_letter'] as String? ?? '',
+      isPassFail: row['is_pass_fail'] as bool? ?? false,
+      isWeighted: row['is_weighted'] as bool? ?? false,
+      weightMultiplier: _parseDouble(row['weight_multiplier']) ?? 1.0,
+    );
+  }
+
+  Map<String, dynamic> toRow({required String ownerId}) {
+    return {
+      'owner_id': ownerId,
+      'student_id': studentId,
+      'grade_level': gradeLevel.value,
+      'year_label': yearLabel,
+      'course_title': courseTitle,
+      'subject_category': subjectCategory,
+      'description': description,
+      'credit_hours': creditHours,
+      'grade_letter': gradeLetter,
+      'is_pass_fail': isPassFail,
+      'is_weighted': isWeighted,
+      'weight_multiplier': weightMultiplier,
+    };
+  }
 }
 
 class Award {
@@ -2799,6 +3302,32 @@ class Award {
   final String category;
   final String yearLabel;
   final int gradeLevel;
+
+  factory Award.fromMap(Map<String, dynamic> row) {
+    return Award(
+      id: row['id'] as String,
+      studentId: row['student_id'] as String,
+      name: row['name'] as String? ?? '',
+      description: row['description'] as String? ?? '',
+      organization: row['organization'] as String? ?? '',
+      category: row['category'] as String? ?? '',
+      yearLabel: row['year_label'] as String? ?? '',
+      gradeLevel: (row['grade_level'] as num?)?.toInt() ?? GradeLevel.grade9.value,
+    );
+  }
+
+  Map<String, dynamic> toRow({required String ownerId}) {
+    return {
+      'owner_id': ownerId,
+      'student_id': studentId,
+      'name': name,
+      'description': description,
+      'organization': organization,
+      'category': category,
+      'year_label': yearLabel,
+      'grade_level': gradeLevel,
+    };
+  }
 }
 
 class Activity {
@@ -2823,6 +3352,132 @@ class Activity {
   final double hours;
   final String yearLabel;
   final int gradeLevel;
+
+  factory Activity.fromMap(Map<String, dynamic> row) {
+    return Activity(
+      id: row['id'] as String,
+      studentId: row['student_id'] as String,
+      type: row['type'] as String? ?? '',
+      title: row['title'] as String? ?? '',
+      description: row['description'] as String? ?? '',
+      organization: row['organization'] as String? ?? '',
+      hours: _parseDouble(row['hours']) ?? 0,
+      yearLabel: row['year_label'] as String? ?? '',
+      gradeLevel: (row['grade_level'] as num?)?.toInt() ?? GradeLevel.grade9.value,
+    );
+  }
+
+  Map<String, dynamic> toRow({required String ownerId}) {
+    return {
+      'owner_id': ownerId,
+      'student_id': studentId,
+      'type': type,
+      'title': title,
+      'description': description,
+      'organization': organization,
+      'hours': hours,
+      'year_label': yearLabel,
+      'grade_level': gradeLevel,
+    };
+  }
+}
+
+class StudentRepository {
+  StudentRepository(this._client);
+
+  final SupabaseClient _client;
+
+  Future<List<StudentRecord>> fetchStudents() async {
+    final data = await _client
+        .from('students')
+        .select('*, enrollments(*), awards(*), activities(*)')
+        .order('created_at');
+    return (data as List<dynamic>)
+        .whereType<Map<String, dynamic>>()
+        .map(StudentRecord.fromMap)
+        .toList();
+  }
+
+  Future<StudentRecord> createStudent(StudentRecord draft) async {
+    final ownerId = _requireUserId();
+    final payload = {
+      'owner_id': ownerId,
+      'first_name': draft.firstName,
+      'last_name': draft.lastName,
+      'date_of_birth': draft.dateOfBirth.toIso8601String(),
+      'target_grad_year': draft.targetGradYear,
+      'email': draft.email,
+      'phone': draft.phone,
+      'address': draft.address,
+      'notes': draft.notes,
+    };
+    final data = await _client
+        .from('students')
+        .insert(payload)
+        .select('*, enrollments(*), awards(*), activities(*)')
+        .single();
+    return StudentRecord.fromMap(data);
+  }
+
+  Future<void> deleteStudent(String id) async {
+    await _client.from('students').delete().eq('id', id);
+  }
+
+  Future<StudentRecord> saveStudent(StudentRecord student) async {
+    final ownerId = _requireUserId();
+    if (student.id.isEmpty) {
+      throw StateError('Student must have an id before saving.');
+    }
+    await _client.from('students').upsert(student.toRow(ownerId: ownerId));
+    await _replaceChildRows(student, ownerId);
+    final updated = await _client
+        .from('students')
+        .select('*, enrollments(*), awards(*), activities(*)')
+        .eq('id', student.id)
+        .single();
+    return StudentRecord.fromMap(updated);
+  }
+
+  Future<void> _replaceChildRows(StudentRecord student, String ownerId) async {
+    final studentId = student.id;
+    await _client.from('enrollments').delete().eq('student_id', studentId);
+    if (student.enrollments.isNotEmpty) {
+      final rows = student.enrollments.map((enrollment) {
+        final row = enrollment.toRow(ownerId: ownerId);
+        row['student_id'] = studentId;
+        return row;
+      }).toList();
+      await _client.from('enrollments').insert(rows);
+    }
+
+    await _client.from('awards').delete().eq('student_id', studentId);
+    if (student.awards.isNotEmpty) {
+      final rows = student.awards.map((award) {
+        final row = award.toRow(ownerId: ownerId);
+        row['student_id'] = studentId;
+        return row;
+      }).toList();
+      await _client.from('awards').insert(rows);
+    }
+
+    await _client.from('activities').delete().eq('student_id', studentId);
+    if (student.activities.isNotEmpty) {
+      final rows = student.activities.map((activity) {
+        final row = activity.toRow(ownerId: ownerId);
+        row['student_id'] = studentId;
+        return row;
+      }).toList();
+      await _client.from('activities').insert(rows);
+    }
+  }
+
+  String _requireUserId() {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) {
+      throw StateError('No authenticated user found.');
+    }
+    return userId;
+  }
 }
 
 class SampleData {
@@ -3111,4 +3766,34 @@ String _formatDate(DateTime date) {
   ];
   final month = months[date.month - 1];
   return '$month ${date.day}, ${date.year}';
+}
+
+List<Map<String, dynamic>> _asList(dynamic value) {
+  if (value is List) {
+    return value.whereType<Map<String, dynamic>>().toList();
+  }
+  return const [];
+}
+
+DateTime? _parseDate(dynamic value) {
+  if (value == null) return null;
+  if (value is DateTime) return value.toUtc();
+  if (value is String && value.isNotEmpty) {
+    return DateTime.tryParse(value);
+  }
+  return null;
+}
+
+double? _parseDouble(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value);
+  return null;
+}
+
+GradeLevel _gradeLevelFromValue(int value) {
+  return GradeLevel.values.firstWhere(
+    (level) => level.value == value,
+    orElse: () => GradeLevel.grade9,
+  );
 }
