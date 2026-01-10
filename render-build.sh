@@ -8,6 +8,11 @@ if [[ -z "${SUPABASE_URL:-}" || -z "${SUPABASE_ANON_KEY:-}" ]]; then
   exit 1
 fi
 
+cat > .env <<EOF
+SUPABASE_URL=${SUPABASE_URL}
+SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+EOF
+
 git clone --depth 1 --branch "${FLUTTER_VERSION}" https://github.com/flutter/flutter.git /tmp/flutter
 export PATH="/tmp/flutter/bin:${PATH}"
 
