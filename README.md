@@ -19,7 +19,7 @@ The app bootstraps environment variables via `flutter_dotenv` during `main()` be
    - This creates the `profiles`, `students`, `enrollments`, `awards`, and `activities` tables plus owner-scoped Row Level Security policies.  
    - When inserting from the app, always set `owner_id = supabase.auth.currentUser!.id` so policies pass.
 3. Enable the Google OAuth provider (Auth → Providers) once you have Google Cloud credentials.
-4. Set **Auth ƒ+' URL Configuration**:
+4. Set **Auth -> URL Configuration**:
    - **Site URL**: your production web domain (Render URL).  
    - **Redirect URLs**: add your production domain plus any local dev URLs you use.
 
@@ -53,9 +53,25 @@ The app calls two Supabase Edge Functions to create Stripe sessions. You must de
      ```
    - These live in `supabase/functions/` and are invoked by the app using `supabase.functions.invoke`.
 
-5. **Optional but recommended: subscription status syncing**  
+5. **Deploy Stripe webhook function (recommended)**  
+   - Set the webhook secret:
+     ```
+     supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_...
+     ```
+   - Deploy the webhook:
+     ```
+     supabase functions deploy stripe-webhook
+     ```
+   - Add a Stripe webhook endpoint that points to:
+     `https://<project-ref>.functions.supabase.co/stripe-webhook`
+   - Subscribe to these events:
+     `checkout.session.completed`, `customer.subscription.created`,
+     `customer.subscription.updated`, `customer.subscription.deleted`,
+     `invoice.payment_failed`
+
+6. **Optional: subscription status syncing alternatives**  
    - The UI reads `profiles.subscription_status` and `profiles.current_period_end`.  
-   - If you want this to stay in sync automatically, add Stripe webhooks or the Supabase Payments extension later and update the `profiles` table based on Stripe events.
+   - If you prefer not to use webhooks, use the Supabase Payments extension or a scheduled sync job instead.
 
 ## Scripts
 
@@ -66,6 +82,7 @@ The app calls two Supabase Edge Functions to create Stripe sessions. You must de
 
 - Supabase schema (tables + RLS) is live, and the Flutter app now loads/saves students, enrollments, awards, and activities through a repository layer instead of `SampleData`.
 - Google OAuth is enabled in Supabase, and the app gates access behind the `signInWithOAuth` flow (web/desktop works out-of-the-box; mobile just needs platform-specific deep links).
+- Stripe billing UI, Edge Functions, and webhook template are wired in; subscription status updates still depend on the Stripe webhook being deployed.
 - Local analyzer/test runs succeed once Supabase is initialized; remaining blockers are purely deployment-related.
 
 ## Next Steps
@@ -73,3 +90,4 @@ The app calls two Supabase Edge Functions to create Stripe sessions. You must de
 - Build the Flutter web bundle (`flutter build web`) and deploy it to a Render static site (or another host).
 - Add the Render domain to Google OAuth Authorized JavaScript origins and Supabase Auth redirect settings, then smoke-test sign-in + saving end-to-end.
 - Once hosting is stable, expand coverage (widget tests, auth guards, premium gating via the `profiles` table/Stripe) as needed.
+
