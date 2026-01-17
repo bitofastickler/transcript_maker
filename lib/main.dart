@@ -6,10 +6,13 @@ import 'package:pdf/pdf.dart' as pdf;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'env/env.dart';
 
 late final StudentRepository studentRepository;
+late final ProfileRepository profileRepository;
+late final BillingRepository billingRepository;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,6 +22,8 @@ Future<void> main() async {
     anonKey: AppEnv.supabaseAnonKey,
   );
   studentRepository = StudentRepository(Supabase.instance.client);
+  profileRepository = ProfileRepository(Supabase.instance.client);
+  billingRepository = BillingRepository(Supabase.instance.client);
   runApp(const HomeschoolLedgerApp());
 }
 
@@ -184,6 +189,11 @@ class _StudentsPageState extends State<StudentsPage> {
       appBar: AppBar(
         title: const Text('Students'),
         actions: [
+          IconButton(
+            tooltip: 'Billing',
+            icon: const Icon(Icons.credit_card),
+            onPressed: _openBilling,
+          ),
           IconButton(
             tooltip: 'Sign out',
             icon: const Icon(Icons.logout),
@@ -411,6 +421,363 @@ class _StudentsPageState extends State<StudentsPage> {
         SnackBar(content: Text('Unable to sign out: $error')),
       );
     }
+  }
+
+  void _openBilling() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const BillingPage()),
+    );
+  }
+}
+
+class BillingPage extends StatefulWidget {
+  const BillingPage({super.key});
+
+  @override
+  State<BillingPage> createState() => _BillingPageState();
+}
+
+class _BillingPageState extends State<BillingPage> {
+  ProfileRecord? _profile;
+  bool _loading = true;
+  bool _working = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadProfile());
+  }
+
+  Future<void> _loadProfile() async {
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+    });
+    try {
+      final profile = await profileRepository.fetchProfile();
+      if (!mounted) return;
+      setState(() {
+        _profile = profile;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _startSubscription() async {
+    final priceId = AppEnv.stripePriceId;
+    if (priceId == null || priceId.isEmpty) {
+      _showError('Missing STRIPE_PRICE_ID. Add it to your environment.');
+      return;
+    }
+    await _launchBillingFlow(
+      () => billingRepository.createCheckoutSession(
+        priceId: priceId,
+        returnUrl: _returnUrl(),
+      ),
+    );
+  }
+
+  Future<void> _openPortal() async {
+    await _launchBillingFlow(
+      () => billingRepository.createPortalSession(returnUrl: _returnUrl()),
+    );
+  }
+
+  Future<void> _launchBillingFlow(Future<Uri> Function() getUrl) async {
+    if (_working) return;
+    setState(() {
+      _working = true;
+      _errorMessage = null;
+    });
+    try {
+      final url = await getUrl();
+      final launched = await launchUrl(url, mode: LaunchMode.externalApplication);
+      if (!launched) {
+        throw StateError('Could not open billing URL.');
+      }
+    } catch (error) {
+      _showError(error.toString());
+    } finally {
+      if (mounted) {
+        setState(() {
+          _working = false;
+        });
+      }
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    setState(() {
+      _errorMessage = message;
+    });
+  }
+
+  String _returnUrl() {
+    final base = Uri.base;
+    if (base.hasScheme && base.host.isNotEmpty) {
+      return base.origin;
+    }
+    return 'http://localhost';
+  }
+
+  bool _isSubscribed(ProfileRecord profile) {
+    final status = profile.subscriptionStatus?.toLowerCase();
+    return status == 'active' || status == 'trialing';
+  }
+
+  String _statusLabel(ProfileRecord profile) {
+    final status = profile.subscriptionStatus;
+    if (status == null || status.isEmpty) return 'Not subscribed';
+    switch (status.toLowerCase()) {
+      case 'active':
+        return 'Active';
+      case 'trialing':
+        return 'Trial';
+      case 'past_due':
+        return 'Past due';
+      case 'canceled':
+        return 'Canceled';
+      case 'incomplete':
+        return 'Incomplete';
+      case 'unpaid':
+        return 'Unpaid';
+      default:
+        return status;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Billing'),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh',
+            icon: const Icon(Icons.refresh),
+            onPressed: _loading ? null : _loadProfile,
+          ),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _profile == null
+              ? _BillingEmptyState(
+                  message: _errorMessage ??
+                      'Unable to load billing details. Try again.',
+                  onRetry: _loadProfile,
+                )
+              : _BillingContent(
+                  profile: _profile!,
+                  statusLabel: _statusLabel(_profile!),
+                  isSubscribed: _isSubscribed(_profile!),
+                  working: _working,
+                  errorMessage: _errorMessage,
+                  onSubscribe: _startSubscription,
+                  onManage: _openPortal,
+                ),
+    );
+  }
+}
+
+class _BillingContent extends StatelessWidget {
+  const _BillingContent({
+    required this.profile,
+    required this.statusLabel,
+    required this.isSubscribed,
+    required this.working,
+    required this.onSubscribe,
+    required this.onManage,
+    this.errorMessage,
+  });
+
+  final ProfileRecord profile;
+  final String statusLabel;
+  final bool isSubscribed;
+  final bool working;
+  final VoidCallback onSubscribe;
+  final VoidCallback onManage;
+  final String? errorMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final renewal = profile.currentPeriodEnd;
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        Card(
+          elevation: 3,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Homeschool Transcript Maker', style: theme.textTheme.titleLarge),
+                const SizedBox(height: 6),
+                Text('Annual subscription', style: theme.textTheme.bodyMedium),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    _StatusPill(label: statusLabel, active: isSubscribed),
+                    const SizedBox(width: 12),
+                    if (renewal != null)
+                      Text(
+                        'Renews ${_formatDate(renewal)}',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                  ],
+                ),
+                if (errorMessage != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    errorMessage!,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.error,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: working
+                            ? null
+                            : (isSubscribed ? onManage : onSubscribe),
+                        icon: working
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : Icon(isSubscribed ? Icons.manage_accounts : Icons.lock_open),
+                        label: Text(isSubscribed ? 'Manage subscription' : 'Start subscription'),
+                      ),
+                    ),
+                  ],
+                ),
+                if (!isSubscribed) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'Cancel anytime. Access is restored immediately after purchase.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('What you get', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 12),
+                _BulletRow(text: 'Unlimited students, classes, awards, and activities'),
+                _BulletRow(text: 'Transcript export and GPA calculations'),
+                _BulletRow(text: 'Secure sync with your Google account'),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BillingEmptyState extends StatelessWidget {
+  const _BillingEmptyState({
+    required this.message,
+    required this.onRetry,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.receipt_long, size: 48),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton(onPressed: onRetry, child: const Text('Try again')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.label, required this.active});
+
+  final String label;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = active ? theme.colorScheme.primary : theme.colorScheme.outline;
+    final background = active
+        ? theme.colorScheme.primary.withOpacity(0.12)
+        : theme.colorScheme.surfaceVariant;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color),
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.labelMedium?.copyWith(color: color),
+      ),
+    );
+  }
+}
+
+class _BulletRow extends StatelessWidget {
+  const _BulletRow({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          const Icon(Icons.check_circle, size: 18),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text)),
+        ],
+      ),
+    );
   }
 }
 
@@ -3088,6 +3455,44 @@ class TranscriptPdfService {
   );
 }
 
+class ProfileRecord {
+  const ProfileRecord({
+    required this.id,
+    this.displayName,
+    this.avatarUrl,
+    this.stripeCustomerId,
+    this.subscriptionStatus,
+    this.subscriptionTier,
+    this.currentPeriodEnd,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String? displayName;
+  final String? avatarUrl;
+  final String? stripeCustomerId;
+  final String? subscriptionStatus;
+  final String? subscriptionTier;
+  final DateTime? currentPeriodEnd;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  factory ProfileRecord.fromMap(Map<String, dynamic> row) {
+    return ProfileRecord(
+      id: row['id'] as String,
+      displayName: row['display_name'] as String?,
+      avatarUrl: row['avatar_url'] as String?,
+      stripeCustomerId: row['stripe_customer_id'] as String?,
+      subscriptionStatus: row['subscription_status'] as String?,
+      subscriptionTier: row['subscription_tier'] as String?,
+      currentPeriodEnd: _parseDate(row['current_period_end']),
+      createdAt: _parseDate(row['created_at']),
+      updatedAt: _parseDate(row['updated_at']),
+    );
+  }
+}
+
 class StudentRecord {
   const StudentRecord({
     required this.id,
@@ -3477,6 +3882,79 @@ class StudentRepository {
       throw StateError('No authenticated user found.');
     }
     return userId;
+  }
+}
+
+class ProfileRepository {
+  ProfileRepository(this._client);
+
+  final SupabaseClient _client;
+
+  Future<ProfileRecord> fetchProfile() async {
+    final userId = _requireUserId();
+    final data =
+        await _client.from('profiles').select().eq('id', userId).single();
+    return ProfileRecord.fromMap(data);
+  }
+
+  String _requireUserId() {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) {
+      throw StateError('No authenticated user found.');
+    }
+    return userId;
+  }
+}
+
+class BillingRepository {
+  BillingRepository(this._client);
+
+  final SupabaseClient _client;
+
+  static const _checkoutFunction = 'create-checkout-session';
+  static const _portalFunction = 'create-portal-session';
+
+  Future<Uri> createCheckoutSession({
+    required String priceId,
+    required String returnUrl,
+  }) async {
+    final response = await _client.functions.invoke(
+      _checkoutFunction,
+      body: {
+        'price_id': priceId,
+        'success_url': returnUrl,
+        'cancel_url': returnUrl,
+      },
+    );
+    return _extractUrl(response.data);
+  }
+
+  Future<Uri> createPortalSession({required String returnUrl}) async {
+    final response = await _client.functions.invoke(
+      _portalFunction,
+      body: {'return_url': returnUrl},
+    );
+    return _extractUrl(response.data);
+  }
+
+  Uri _extractUrl(dynamic data) {
+    if (data is String && data.isNotEmpty) {
+      return Uri.parse(data);
+    }
+    if (data is Map) {
+      for (final key in const [
+        'url',
+        'checkout_url',
+        'portal_url',
+        'session_url',
+      ]) {
+        final value = data[key];
+        if (value is String && value.isNotEmpty) {
+          return Uri.parse(value);
+        }
+      }
+    }
+    throw StateError('Billing URL missing from function response.');
   }
 }
 

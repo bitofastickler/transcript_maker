@@ -13,12 +13,23 @@ SUPABASE_URL=${SUPABASE_URL}
 SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
 EOF
 
+if [[ -n "${STRIPE_PRICE_ID:-}" ]]; then
+  echo "STRIPE_PRICE_ID=${STRIPE_PRICE_ID}" >> .env
+fi
+
 git clone --depth 1 --branch "${FLUTTER_VERSION}" https://github.com/flutter/flutter.git /tmp/flutter
 export PATH="/tmp/flutter/bin:${PATH}"
 
 flutter config --enable-web
 flutter precache --web
 flutter pub get
-flutter build web --release \
-  --dart-define=SUPABASE_URL="${SUPABASE_URL}" \
+DART_DEFINES=(
+  --dart-define=SUPABASE_URL="${SUPABASE_URL}"
   --dart-define=SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY}"
+)
+
+if [[ -n "${STRIPE_PRICE_ID:-}" ]]; then
+  DART_DEFINES+=(--dart-define=STRIPE_PRICE_ID="${STRIPE_PRICE_ID}")
+fi
+
+flutter build web --release "${DART_DEFINES[@]}"
