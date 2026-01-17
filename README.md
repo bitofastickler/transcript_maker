@@ -19,7 +19,43 @@ The app bootstraps environment variables via `flutter_dotenv` during `main()` be
    - This creates the `profiles`, `students`, `enrollments`, `awards`, and `activities` tables plus owner-scoped Row Level Security policies.  
    - When inserting from the app, always set `owner_id = supabase.auth.currentUser!.id` so policies pass.
 3. Enable the Google OAuth provider (Auth → Providers) once you have Google Cloud credentials.
-4. Optional: connect Stripe via Supabase's Payments extension so the `profiles` subscription fields stay in sync.
+4. Set **Auth ƒ+' URL Configuration**:
+   - **Site URL**: your production web domain (Render URL).  
+   - **Redirect URLs**: add your production domain plus any local dev URLs you use.
+
+## Stripe Billing Setup (Supabase + Edge Functions)
+
+The app calls two Supabase Edge Functions to create Stripe sessions. You must deploy them and configure secrets.
+
+1. **Create a Stripe product + price**  
+   - Use Stripe Dashboard to create your annual subscription price.  
+   - Copy the price ID (looks like `price_...`).
+
+2. **Set app config**  
+   - Add `STRIPE_PRICE_ID` to `.env` for local builds.  
+   - In Render, add `STRIPE_PRICE_ID` as a build-time env var (used by `render-build.sh`).
+
+3. **Set Supabase secrets**  
+   - You need `SUPABASE_SERVICE_ROLE_KEY` and `STRIPE_SECRET_KEY`.  
+   - Use the CLI:
+     ```
+     supabase secrets set \
+       SUPABASE_URL=https://your-project-id.supabase.co \
+       SUPABASE_SERVICE_ROLE_KEY=your-service-role-key \
+       STRIPE_SECRET_KEY=sk_live_...
+     ```
+
+4. **Deploy Edge Functions**  
+   - From the repo root:
+     ```
+     supabase functions deploy create-checkout-session
+     supabase functions deploy create-portal-session
+     ```
+   - These live in `supabase/functions/` and are invoked by the app using `supabase.functions.invoke`.
+
+5. **Optional but recommended: subscription status syncing**  
+   - The UI reads `profiles.subscription_status` and `profiles.current_period_end`.  
+   - If you want this to stay in sync automatically, add Stripe webhooks or the Supabase Payments extension later and update the `profiles` table based on Stripe events.
 
 ## Scripts
 
