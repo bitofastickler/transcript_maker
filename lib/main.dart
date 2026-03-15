@@ -1251,24 +1251,58 @@ class _StudentDetailPageState extends State<StudentDetailPage>
     switch (_tabController.index) {
       case 1:
         return FloatingActionButton.extended(
-          onPressed: _addAward,
+          onPressed: _isSaving ? null : _addAward,
           icon: const Icon(Icons.emoji_events),
           label: const Text('Add Award'),
         );
       case 2:
         return FloatingActionButton.extended(
-          onPressed: _addActivity,
+          onPressed: _isSaving ? null : _addActivity,
           icon: const Icon(Icons.group),
           label: const Text('Add Activity'),
         );
       case 0:
       default:
         return FloatingActionButton.extended(
-          onPressed: _addClass,
+          onPressed: _isSaving ? null : _addClass,
           icon: const Icon(Icons.class_),
           label: const Text('Add Class'),
         );
     }
+  }
+
+  Widget _buildSaveAction(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 760;
+    final canSave = _isDirty && !_isSaving;
+    final icon = _isSaving
+        ? const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        : Icon(_isDirty ? Icons.save : Icons.check);
+    final tooltip = _isSaving
+        ? 'Saving changes'
+        : _isDirty
+            ? 'Save changes'
+            : 'No unsaved changes';
+
+    if (compact) {
+      return IconButton(
+        tooltip: tooltip,
+        onPressed: canSave ? _saveChanges : null,
+        icon: icon,
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: FilledButton.tonalIcon(
+        onPressed: canSave ? _saveChanges : null,
+        icon: icon,
+        label: Text(_isSaving ? 'Saving' : _isDirty ? 'Save' : 'Saved'),
+      ),
+    );
   }
 
   String _generateId(String prefix) {
@@ -1283,24 +1317,27 @@ class _StudentDetailPageState extends State<StudentDetailPage>
       appBar: AppBar(
         title: Text(_student.fullName),
         actions: [
+          _buildSaveAction(context),
           IconButton(
             tooltip: 'Edit student',
             icon: const Icon(Icons.edit),
-            onPressed: _editStudent,
+            onPressed: _isSaving ? null : _editStudent,
           ),
           IconButton(
             tooltip: 'Delete student',
             icon: const Icon(Icons.delete_outline),
-            onPressed: _deleteStudent,
+            onPressed: _isSaving ? null : _deleteStudent,
           ),
           IconButton(
             tooltip: 'Export transcript to PDF',
             icon: const Icon(Icons.picture_as_pdf),
-            onPressed: () => TranscriptPdfService.export(
-              context: context,
-              student: _student,
-              snapshot: snapshot,
-            ),
+            onPressed: _isSaving
+                ? null
+                : () => TranscriptPdfService.export(
+                    context: context,
+                    student: _student,
+                    snapshot: snapshot,
+                  ),
           ),
         ],
         bottom: TabBar(
@@ -1350,7 +1387,6 @@ class _StudentDetailPageState extends State<StudentDetailPage>
             visible: _isDirty,
             isSaving: _isSaving,
             errorMessage: _saveError,
-            onSave: _saveChanges,
           ),
         ],
       ),
@@ -1362,13 +1398,11 @@ class _SaveBanner extends StatelessWidget {
   const _SaveBanner({
     required this.visible,
     required this.isSaving,
-    required this.onSave,
     this.errorMessage,
   });
 
   final bool visible;
   final bool isSaving;
-  final VoidCallback onSave;
   final String? errorMessage;
 
   @override
@@ -1402,23 +1436,14 @@ class _SaveBanner extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        errorMessage ?? 'Save to keep updates synced with Supabase.',
+                        isSaving
+                            ? 'Saving changes...'
+                            : errorMessage ??
+                                'Use the Save control in the top bar to sync updates.',
                         style: messageStyle,
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(width: 16),
-                FilledButton.icon(
-                  onPressed: isSaving ? null : onSave,
-                  icon: isSaving
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.save),
-                  label: Text(isSaving ? 'Saving' : 'Save'),
                 ),
               ],
             ),

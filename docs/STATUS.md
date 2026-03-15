@@ -14,11 +14,13 @@ Launch hardening on Supabase-backed architecture with internal Play testing acti
 - Domain model updated to group classes by academic year (no term-name workflow).
 - Supabase schema and edge function scaffolding present in repo.
 - Billing UI and Stripe function integration wired in app.
+- Save control moved to top app bar in student detail view to stay visible and usable on web/mobile layouts.
 
 ## In Progress
 
 - Documentation hardening for context recovery.
 - Backend architecture clarification and operational runbook quality.
+- Monitoring tester feedback on save UX and persistence behavior.
 
 ## Open Risks / Blockers
 
