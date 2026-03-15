@@ -52,8 +52,18 @@ This is the fast-recovery page for future sessions. If context is reset, read th
 ### Billing contract
 
 - `create-checkout-session`: creates/reuses Stripe customer and returns checkout URL.
-- `create-portal-session`: returns Stripe customer portal URL.
+- `create-billing-portal-session`: returns Stripe customer portal URL.
 - `stripe-webhook`: writes subscription state into `profiles`.
+- Keep local function folder name aligned with deployed function name for CLI redeploys.
+
+Portal function request/response contract:
+- URL: `https://<project-ref>.supabase.co/functions/v1/create-billing-portal-session`
+- Method: `POST`
+- Headers:
+  - `Authorization: Bearer <access_token>`
+  - `Content-Type: application/json`
+- Body: `{ "return_url": "https://your.app/account" }`
+- Response: `{ "url": "https://billing.stripe.com/session/..." }`
 
 ## Environment Keys
 
@@ -68,6 +78,7 @@ This is the fast-recovery page for future sessions. If context is reset, read th
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `STRIPE_SECRET_KEY`
+- `STRIPE_TRIAL_DAYS` (optional, defaults to `30`)
 - `STRIPE_WEBHOOK_SECRET`
 
 ## Current Risk Summary

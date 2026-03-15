@@ -3966,7 +3966,7 @@ class BillingRepository {
   final SupabaseClient _client;
 
   static const _checkoutFunction = 'create-checkout-session';
-  static const _portalFunction = 'create-portal-session';
+  static const _portalFunction = 'create-billing-portal-session';
 
   Future<Uri> createCheckoutSession({
     required String priceId,

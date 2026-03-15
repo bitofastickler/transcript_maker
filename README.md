@@ -35,7 +35,7 @@ The app bootstraps environment variables via `flutter_dotenv` during `main()` be
 
 ## Stripe Billing Setup (Supabase + Edge Functions)
 
-The app calls two Supabase Edge Functions to create Stripe sessions. You must deploy them and configure secrets.
+The app calls two Supabase Edge Functions for Stripe flows. You must deploy them and configure secrets.
 First-time subscribers receive a free trial (30 days by default) from the checkout function.
 
 1. **Create a Stripe product + price**  
@@ -62,11 +62,30 @@ First-time subscribers receive a free trial (30 days by default) from the checko
    - From the repo root:
      ```
      supabase functions deploy create-checkout-session
-     supabase functions deploy create-portal-session
+     supabase functions deploy create-billing-portal-session
      ```
-   - These live in `supabase/functions/` and are invoked by the app using `supabase.functions.invoke`.
+   - These are invoked by the app using `supabase.functions.invoke`.
+   - Current expected invocation names:
+     - `create-checkout-session`
+     - `create-billing-portal-session`
+   - If your local function folder is still `supabase/functions/create-portal-session`, rename it to `create-billing-portal-session` before CLI redeploy so function name and app invocation stay aligned.
 
-5. **Deploy Stripe webhook function (recommended)**  
+5. **Portal function invocation contract**  
+   - URL: `https://<project-ref>.supabase.co/functions/v1/create-billing-portal-session`
+   - Method: `POST`
+   - Headers:
+     - `Authorization: Bearer <access_token>`
+     - `Content-Type: application/json`
+   - JSON body:
+     ```
+     { "return_url": "https://your.app/account" }
+     ```
+   - Response:
+     ```
+     { "url": "https://billing.stripe.com/session/..." }
+     ```
+
+6. **Deploy Stripe webhook function (recommended)**  
    - Set the webhook secret:
      ```
      supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_...
@@ -82,7 +101,7 @@ First-time subscribers receive a free trial (30 days by default) from the checko
      `customer.subscription.updated`, `customer.subscription.deleted`,
      `invoice.payment_failed`
 
-6. **Optional: subscription status syncing alternatives**  
+7. **Optional: subscription status syncing alternatives**  
    - The UI reads `profiles.subscription_status` and `profiles.current_period_end`.  
    - If you prefer not to use webhooks, use the Supabase Payments extension or a scheduled sync job instead.
 
