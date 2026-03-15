@@ -1,11 +1,11 @@
 {
-    "name": "transcript_maker",
-    "short_name": "transcript_maker",
+    "name": "Homeschool Transcript Maker",
+    "short_name": "Transcript Maker",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Homeschool Transcript Maker",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
