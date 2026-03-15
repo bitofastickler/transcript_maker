@@ -5,7 +5,7 @@ Scope reviewed:
 - `lib/main.dart`
 - `supabase/schema.sql`
 - `supabase/functions/create-checkout-session/index.ts`
-- `supabase/functions/create-portal-session/index.ts`
+- `supabase/functions/create-billing-portal-session/index.ts`
 - `supabase/functions/stripe-webhook/index.ts`
 - `test/widget_test.dart`
 
@@ -26,7 +26,7 @@ Scope reviewed:
 ### Medium
 
 3. Billing redirect URLs are fully client-controlled.
-   - Reference: `supabase/functions/create-checkout-session/index.ts:17`, `supabase/functions/create-checkout-session/index.ts:60`, `supabase/functions/create-checkout-session/index.ts:61`, `supabase/functions/create-portal-session/index.ts:17`, `supabase/functions/create-portal-session/index.ts:47`
+   - Reference: `supabase/functions/create-checkout-session/index.ts:17`, `supabase/functions/create-checkout-session/index.ts:60`, `supabase/functions/create-checkout-session/index.ts:61`, `supabase/functions/create-billing-portal-session/index.ts:17`, `supabase/functions/create-billing-portal-session/index.ts:47`
    - Why this matters: allows arbitrary redirect destinations if a valid authenticated caller sends crafted URLs.
    - Recommendation: enforce an allowlist of origins in edge functions.
 

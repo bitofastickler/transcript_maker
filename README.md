@@ -68,7 +68,6 @@ First-time subscribers receive a free trial (30 days by default) from the checko
    - Current expected invocation names:
      - `create-checkout-session`
      - `create-billing-portal-session`
-   - If your local function folder is still `supabase/functions/create-portal-session`, rename it to `create-billing-portal-session` before CLI redeploy so function name and app invocation stay aligned.
 
 5. **Portal function invocation contract**  
    - URL: `https://<project-ref>.supabase.co/functions/v1/create-billing-portal-session`

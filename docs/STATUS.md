@@ -19,6 +19,7 @@ Launch hardening on Supabase-backed architecture with internal Play testing acti
 - Billing UI now exposes a dedicated Manage/cancel subscription action (when Stripe customer exists) instead of hiding it behind subscribe state.
 - Billing manage/cancel navigation is now always visible from billing screen (with clearer portal error messaging).
 - Billing client invoke target is aligned to deployed Supabase function name (`create-billing-portal-session`).
+- Local Supabase function folder now matches deployed portal function name (`supabase/functions/create-billing-portal-session`).
 - Web tab/favicon and PWA icon assets are branded to Homeschool Transcript Maker (no default Flutter icon).
 
 ## In Progress
@@ -42,7 +43,6 @@ Launch hardening on Supabase-backed architecture with internal Play testing acti
 3. Add allowlist validation for checkout/portal return URLs in edge functions.
 4. Replace stale widget test with auth-aware and repository-mocked tests.
 5. Continue modularizing `lib/main.dart` according to `docs/ORGANIZATION_PLAN.md`.
-6. Rename local Supabase function folder `create-portal-session` to `create-billing-portal-session` to remove name drift in repo structure.
 
 ## Release Readiness Snapshot
 
