@@ -672,7 +672,7 @@ class _BillingContent extends StatelessWidget {
                 if (!isSubscribed) ...[
                   const SizedBox(height: 12),
                   Text(
-                    'Cancel anytime. Access is restored immediately after purchase.',
+                    'Includes a one-month free trial for first-time subscribers. Cancel anytime.',
                     style: theme.textTheme.bodySmall,
                   ),
                 ],

@@ -22,6 +22,7 @@ Launch hardening on Supabase-backed architecture with internal Play testing acti
 - Documentation hardening for context recovery.
 - Backend architecture clarification and operational runbook quality.
 - Monitoring tester feedback on save UX and persistence behavior (next pass pending tester availability).
+- Stripe checkout trial support implemented in edge function; pending function deploy and end-to-end validation.
 
 ## Open Risks / Blockers
 

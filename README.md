@@ -36,6 +36,7 @@ The app bootstraps environment variables via `flutter_dotenv` during `main()` be
 ## Stripe Billing Setup (Supabase + Edge Functions)
 
 The app calls two Supabase Edge Functions to create Stripe sessions. You must deploy them and configure secrets.
+First-time subscribers receive a free trial (30 days by default) from the checkout function.
 
 1. **Create a Stripe product + price**  
    - Use Stripe Dashboard to create your annual subscription price.  
@@ -47,12 +48,14 @@ The app calls two Supabase Edge Functions to create Stripe sessions. You must de
 
 3. **Set Supabase secrets**  
    - You need `SUPABASE_SERVICE_ROLE_KEY` and `STRIPE_SECRET_KEY`.  
+   - Optional: set `STRIPE_TRIAL_DAYS` (defaults to `30` if omitted).  
    - Use the CLI:
      ```
      supabase secrets set \
        SUPABASE_URL=https://your-project-id.supabase.co \
        SUPABASE_SERVICE_ROLE_KEY=your-service-role-key \
-       STRIPE_SECRET_KEY=sk_live_...
+       STRIPE_SECRET_KEY=sk_live_... \
+       STRIPE_TRIAL_DAYS=30
      ```
 
 4. **Deploy Edge Functions**  
