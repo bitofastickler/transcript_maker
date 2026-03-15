@@ -16,6 +16,7 @@ Launch hardening on Supabase-backed architecture with internal Play testing acti
 - Billing UI and Stripe function integration wired in app.
 - Save control moved to top app bar in student detail view to stay visible and usable on web/mobile layouts.
 - Save UX update deployed successfully to Render.
+- Billing UI now exposes a dedicated Manage/cancel subscription action (when Stripe customer exists) instead of hiding it behind subscribe state.
 
 ## In Progress
 

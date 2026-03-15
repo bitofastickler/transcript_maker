@@ -583,6 +583,7 @@ class _BillingPageState extends State<BillingPage> {
                   profile: _profile!,
                   statusLabel: _statusLabel(_profile!),
                   isSubscribed: _isSubscribed(_profile!),
+                  canManage: (_profile!.stripeCustomerId?.isNotEmpty ?? false),
                   working: _working,
                   errorMessage: _errorMessage,
                   onSubscribe: _startSubscription,
@@ -597,6 +598,7 @@ class _BillingContent extends StatelessWidget {
     required this.profile,
     required this.statusLabel,
     required this.isSubscribed,
+    required this.canManage,
     required this.working,
     required this.onSubscribe,
     required this.onManage,
@@ -606,6 +608,7 @@ class _BillingContent extends StatelessWidget {
   final ProfileRecord profile;
   final String statusLabel;
   final bool isSubscribed;
+  final bool canManage;
   final bool working;
   final VoidCallback onSubscribe;
   final VoidCallback onManage;
@@ -650,29 +653,53 @@ class _BillingContent extends StatelessWidget {
                   ),
                 ],
                 const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: working
-                            ? null
-                            : (isSubscribed ? onManage : onSubscribe),
+                if (isSubscribed)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: working ? null : onManage,
+                          icon: working
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.manage_accounts),
+                          label: const Text('Manage subscription'),
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: working ? null : onSubscribe,
                         icon: working
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
-                            : Icon(isSubscribed ? Icons.manage_accounts : Icons.lock_open),
-                        label: Text(isSubscribed ? 'Manage subscription' : 'Start subscription'),
+                            : const Icon(Icons.lock_open),
+                        label: const Text('Start subscription'),
                       ),
-                    ),
-                  ],
-                ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: (working || !canManage) ? null : onManage,
+                        icon: const Icon(Icons.manage_accounts),
+                        label: const Text('Manage/cancel subscription'),
+                      ),
+                    ],
+                  ),
                 if (!isSubscribed) ...[
                   const SizedBox(height: 12),
                   Text(
-                    'Includes a one-month free trial for first-time subscribers. Cancel anytime.',
+                    canManage
+                        ? 'Includes a one-month free trial for first-time subscribers. Use Manage/cancel subscription if you already signed up.'
+                        : 'Includes a one-month free trial for first-time subscribers. Cancel anytime.',
                     style: theme.textTheme.bodySmall,
                   ),
                 ],
