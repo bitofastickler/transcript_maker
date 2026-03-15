@@ -15,12 +15,13 @@ Launch hardening on Supabase-backed architecture with internal Play testing acti
 - Supabase schema and edge function scaffolding present in repo.
 - Billing UI and Stripe function integration wired in app.
 - Save control moved to top app bar in student detail view to stay visible and usable on web/mobile layouts.
+- Save UX update deployed successfully to Render.
 
 ## In Progress
 
 - Documentation hardening for context recovery.
 - Backend architecture clarification and operational runbook quality.
-- Monitoring tester feedback on save UX and persistence behavior.
+- Monitoring tester feedback on save UX and persistence behavior (next pass pending tester availability).
 
 ## Open Risks / Blockers
 

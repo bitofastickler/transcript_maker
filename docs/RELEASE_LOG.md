@@ -24,3 +24,12 @@ Do not add routine dev activity here.
 - What changed:
   - Added lightweight docs recovery workflow (`INDEX`, `STATUS`, `DECISIONS`, `CONTEXT_HANDOFF`).
 - Result: active
+
+### 2026-03-15
+
+- Platform/track: web (Render deployment)
+- Version/build: main @ 592e34d
+- What changed:
+  - Moved student-detail save control into top app bar.
+  - Kept bottom unsaved panel informational-only to reduce save-button blocking/visibility issues.
+- Result: deployed; pending additional tester verification
