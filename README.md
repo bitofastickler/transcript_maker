@@ -2,6 +2,16 @@
 
 Homeschool transcript builder built with Flutter, preparing for Supabase-backed persistence and Google-authenticated users.
 
+## Project Docs
+
+- `docs/INDEX.md` - reading order and update protocol for project docs.
+- `docs/CONTEXT_HANDOFF.md` - architecture snapshot, current status, and session recovery notes.
+- `docs/STATUS.md` - live project state, blockers, and next actions.
+- `docs/DECISIONS.md` - durable architecture decisions (ADR-style).
+- `docs/RELEASE_LOG.md` - concise release and rollout history.
+- `docs/CODE_REVIEW_2026-03-15.md` - latest code review findings and priorities.
+- `docs/ORGANIZATION_PLAN.md` - incremental refactor structure plan.
+
 ## Development Setup
 
 1. **Install tooling** - Ensure you have Flutter (3.19+) installed and added to your PATH.
@@ -15,10 +25,10 @@ The app bootstraps environment variables via `flutter_dotenv` during `main()` be
 ## Supabase Setup
 
 1. Create a Supabase project and add its URL/key to `.env`.
-2. In the Supabase dashboard, open **SQL Editor → New query**, paste `supabase/schema.sql`, and run it.  
+2. In the Supabase dashboard, open **SQL Editor -> New query**, paste `supabase/schema.sql`, and run it.  
    - This creates the `profiles`, `students`, `enrollments`, `awards`, and `activities` tables plus owner-scoped Row Level Security policies.  
    - When inserting from the app, always set `owner_id = supabase.auth.currentUser!.id` so policies pass.
-3. Enable the Google OAuth provider (Auth → Providers) once you have Google Cloud credentials.
+3. Enable the Google OAuth provider (Auth -> Providers) once you have Google Cloud credentials.
 4. Set **Auth -> URL Configuration**:
    - **Site URL**: your production web domain (Render URL).  
    - **Redirect URLs**: add your production domain plus any local dev URLs you use.
@@ -90,4 +100,5 @@ The app calls two Supabase Edge Functions to create Stripe sessions. You must de
 - Build the Flutter web bundle (`flutter build web`) and deploy it to a Render static site (or another host).
 - Add the Render domain to Google OAuth Authorized JavaScript origins and Supabase Auth redirect settings, then smoke-test sign-in + saving end-to-end.
 - Once hosting is stable, expand coverage (widget tests, auth guards, premium gating via the `profiles` table/Stripe) as needed.
+
 

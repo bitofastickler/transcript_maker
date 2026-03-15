@@ -745,7 +745,7 @@ class _StatusPill extends StatelessWidget {
     final color = active ? theme.colorScheme.primary : theme.colorScheme.outline;
     final background = active
         ? theme.colorScheme.primary.withOpacity(0.12)
-        : theme.colorScheme.surfaceVariant;
+        : theme.colorScheme.surfaceContainerHighest;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
