@@ -54,6 +54,7 @@ This is the fast-recovery page for future sessions. If context is reset, read th
 - `create-checkout-session`: creates/reuses Stripe customer and returns checkout URL.
 - `create-billing-portal-session`: returns Stripe customer portal URL.
 - `stripe-webhook`: writes subscription state into `profiles`.
+- Client billing portal navigation invokes `create-billing-portal-session`.
 - Keep local function folder name aligned with deployed function name for CLI redeploys.
 
 Portal function request/response contract:
@@ -101,6 +102,7 @@ Detailed findings live in `docs/CODE_REVIEW_2026-03-15.md`.
 4. Verify backend config:
    - Supabase schema aligned with `supabase/schema.sql`
    - Edge function secrets present
+   - Billing/portal function names aligned between app invoke target and deployed Supabase functions
 5. For release work:
    - build signed bundle
    - upload to internal track first
