@@ -68,7 +68,7 @@ that specific issue was already fixed in the current baseline and is not a new f
 Tests/builds use a source copy under the local cache because OneDrive interfered with
 Flutter's test-cache directory cleanup. The source workspace remains the repository.
 No signed native builds, mobile-device tests, screen-reader audit, production database
-policy checks, or hosted Pages deployment were performed.
+policy checks were performed. GitHub Pages deployment and live example/JSON download were verified after release approval.
 
 ## Remaining product improvements, in order
 
@@ -87,9 +87,9 @@ policy checks, or hosted Pages deployment were performed.
 ## Publication boundary
 
 The maintainer confirmed the historical John/Jane Smith samples are fictional and safe
-to publish on September 26, 2026. Keep the repository private until final release approval,
-including the prepared MIT license. Public history can be copied even if visibility is later reversed.
-Review the preview and PR, then explicitly approve public visibility and Pages deployment.
+to publish on September 26, 2026. The maintainer subsequently approved the public release,
+including the MIT license. PR #1 was merged, the repository made public, and v2.0.0 published.
+Pages deployment passed analysis, all 13 tests, and the web build. The live example loaded and its downloaded JSON matched the bundled fixture. See RELEASE_CHECKLIST.md for evidence and remaining follow-up.
 No live Squarespace copy, hosting project, database, or Stripe subscription was changed.
 
 ## Sources
