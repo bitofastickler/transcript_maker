@@ -1,125 +1,93 @@
-# transcript_maker
+# Homeschool Transcript Maker
 
-Homeschool transcript builder built with Flutter, preparing for Supabase-backed persistence and Google-authenticated users.
+A free, local-file homeschool transcript builder. Record courses, calculate GPA,
+track awards and activities, and export a printable PDF. No accounts, subscriptions,
+API keys, database, or application server.
 
-## Project Docs
+**Release candidate:** the browser build is the primary supported target. Native
+platform projects are included for contributors; signed desktop/mobile releases
+are not yet verified or distributed. A public hosted URL will be added after release approval.
 
-- `docs/INDEX.md` - reading order and update protocol for project docs.
-- `docs/CONTEXT_HANDOFF.md` - architecture snapshot, current status, and session recovery notes.
-- `docs/STATUS.md` - live project state, blockers, and next actions.
-- `docs/DECISIONS.md` - durable architecture decisions (ADR-style).
-- `docs/RELEASE_LOG.md` - concise release and rollout history.
-- `docs/CODE_REVIEW_2026-03-15.md` - latest code review findings and priorities.
-- `docs/ORGANIZATION_PLAN.md` - incremental refactor structure plan.
+## Using it
 
-## Development Setup
+1. Open the app and choose **Add Student**, or **Open transcript file** to resume.
+2. Enter courses, awards, and activities. Course letters must be A+ through F;
+   choose Pass/Fail mode for Pass or Fail grades.
+3. Choose **Save file**. The JSON file contains every student in the current session.
+   In a browser this starts a download: check that it completed and keep the file.
+4. Open a student and choose **Export transcript to PDF** to print or share.
 
-1. **Install tooling** - Ensure you have Flutter (3.19+) installed and added to your PATH.
-2. **Install dependencies** - Run `flutter pub get`.
-3. **Configure environment variables**  
-   - Copy `.env.example` to `.env` (this file is bundled as an app asset, so Flutter must see it before building).  
-   - Fill in `SUPABASE_URL` and `SUPABASE_ANON_KEY` from your Supabase project (these stay local; `.env` is gitignored).
+**The JSON file is your editable record. The PDF is a presentation copy.**
+Work is held in memory until saved. There is no automatic recovery, cloud sync,
+or browser storage. Closing/reloading can lose work; browser warnings are best-effort,
+especially on mobile. Keep a second copy of important files. Opening a file replaces
+all students in the session after a warning if changes are unsaved.
 
-The app bootstraps environment variables via `flutter_dotenv` during `main()` before initializing Supabase.
+## Run from source
 
-## Supabase Setup
+Install [Flutter 3.35.7](https://docs.flutter.dev/install/archive) (Dart 3.9.2).
+Then, from a terminal:
 
-1. Create a Supabase project and add its URL/key to `.env`.
-2. In the Supabase dashboard, open **SQL Editor -> New query**, paste `supabase/schema.sql`, and run it.  
-   - This creates the `profiles`, `students`, `enrollments`, `awards`, and `activities` tables plus owner-scoped Row Level Security policies.  
-   - When inserting from the app, always set `owner_id = supabase.auth.currentUser!.id` so policies pass.
-3. Enable the Google OAuth provider (Auth -> Providers) once you have Google Cloud credentials.
-4. Set **Auth -> URL Configuration**:
-   - **Site URL**: your production web domain (Render URL).  
-   - **Redirect URLs**: add your production domain plus any local dev URLs you use.
+```sh
+git clone https://github.com/bitofastickler/transcript_maker.git
+cd transcript_maker
+flutter pub get
+flutter run -d chrome
+```
 
-## Stripe Billing Setup (Supabase + Edge Functions)
+On Windows, Flutter plugins can require Windows Developer Mode for symbolic links.
+Prefer a checkout outside OneDrive if build-cache deletion fails. No `.env` file is needed.
 
-The app calls two Supabase Edge Functions for Stripe flows. You must deploy them and configure secrets.
-First-time subscribers receive a free trial (30 days by default) from the checkout function.
+```sh
+flutter analyze
+flutter test
+flutter build web --release --no-web-resources-cdn
+python -m http.server 8080 --bind 127.0.0.1 --directory build/web
+```
 
-1. **Create a Stripe product + price**  
-   - Use Stripe Dashboard to create your annual subscription price.  
-   - Copy the price ID (looks like `price_...`).
+Open http://localhost:8080. Serve the build through HTTP; opening `index.html` as a
+file is unsupported. Build-time dependency downloads require internet access.
+The build bundles CanvasKit and PDF fonts. A hosted browser app needs connectivity
+to load its assets; this release does not promise offline PWA installation.
 
-2. **Set app config**  
-   - Add `STRIPE_PRICE_ID` to `.env` for local builds.  
-   - In Render, add `STRIPE_PRICE_ID` as a build-time env var (used by `render-build.sh`).
+## GPA policy
 
-3. **Set Supabase secrets**  
-   - You need `SUPABASE_SERVICE_ROLE_KEY` and `STRIPE_SECRET_KEY`.  
-   - Optional: set `STRIPE_TRIAL_DAYS` (defaults to `30` if omitted).  
-   - Use the CLI:
-     ```
-     supabase secrets set \
-       SUPABASE_URL=https://your-project-id.supabase.co \
-       SUPABASE_SERVICE_ROLE_KEY=your-service-role-key \
-       STRIPE_SECRET_KEY=sk_live_... \
-       STRIPE_TRIAL_DAYS=30
-     ```
+GPA is weighted by course credits. A+/A = 4.0; A- = 3.7; B+ = 3.3; B = 3.0;
+B- = 2.7; C+ = 2.3; C = 2.0; C- = 1.7; D+ = 1.3; D = 1.0; D- = 0.7; F = 0.
+For weighted GPA, marked courses multiply grade points by their chosen multiplier.
+This is **multiplicative**, not a fixed AP/Honors bonus. Pass/fail courses are excluded
+from GPA; only Pass earns credits. F earns no credits. Credits display to two decimals.
+An empty GPA displays 0.00. Institutions may recalculate using different policies.
 
-4. **Deploy Edge Functions**  
-   - From the repo root:
-     ```
-     supabase functions deploy create-checkout-session
-     supabase functions deploy create-billing-portal-session
-     ```
-   - These are invoked by the app using `supabase.functions.invoke`.
-   - Current expected invocation names:
-     - `create-checkout-session`
-     - `create-billing-portal-session`
+The PDF uses one layout; it is not a guarantee of acceptance by any institution.
+Review the receiving institution's transcript requirements. School details,
+certification/signature fields, optional birth-date display, configurable grading
+scales, and additional scripts/fonts remain release-roadmap items.
 
-5. **Portal function invocation contract**  
-   - URL: `https://<project-ref>.supabase.co/functions/v1/create-billing-portal-session`
-   - Method: `POST`
-   - Headers:
-     - `Authorization: Bearer <access_token>`
-     - `Content-Type: application/json`
-   - JSON body:
-     ```
-     { "return_url": "https://your.app/account" }
-     ```
-   - Response:
-     ```
-     { "url": "https://billing.stripe.com/session/..." }
-     ```
+## Privacy and file format
 
-6. **Deploy Stripe webhook function (recommended)**  
-   - Set the webhook secret:
-     ```
-     supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_...
-     ```
-   - Deploy the webhook:
-     ```
-     supabase functions deploy stripe-webhook
-     ```
-   - Add a Stripe webhook endpoint that points to:
-     `https://<project-ref>.functions.supabase.co/stripe-webhook`
-   - Subscribe to these events:
-     `checkout.session.completed`, `customer.subscription.created`,
-     `customer.subscription.updated`, `customer.subscription.deleted`,
-     `invoice.payment_failed`
+See [PRIVACY.md](PRIVACY.md). Student data is not uploaded by the application.
+The host receives normal requests for app assets. Saved JSON and PDF files are
+unencrypted: your OS, chosen folder, backups, and sharing choices control access.
+JSON files identify `format: "transcript-maker"` and `version: 1`; malformed,
+unsupported, oversized, or inconsistent files are rejected before replacing work.
 
-7. **Optional: subscription status syncing alternatives**  
-   - The UI reads `profiles.subscription_status` and `profiles.current_period_end`.  
-   - If you prefer not to use webhooks, use the Supabase Payments extension or a scheduled sync job instead.
+## Hosting on GitHub
 
-## Scripts
+GitHub Pages serves the static app; no Supabase, Stripe, Render, or paid service
+is needed. The [Pages workflow](.github/workflows/pages.yml) runs **manually** only,
+with build and test checks before deployment. Set repository Settings > Pages >
+Source to GitHub Actions and run the workflow after approving a release. The workflow
+sets the project base path from the repository name. Custom domains need a root base path.
+The source repository's public visibility and Pages hosting are separate settings.
 
-- `flutter run` - Launch the application on the desired device/emulator.
-- `flutter test` - Run the default widget tests.
+## Contributing and maintenance
 
-## Current Status
+See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md),
+[the full review](docs/OPEN_SOURCE_REVIEW.md), and [release checklist](docs/RELEASE_CHECKLIST.md).
+The code is MIT licensed; bundled Noto fonts retain their SIL Open Font License.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-- Supabase schema (tables + RLS) is live, and the Flutter app now loads/saves students, enrollments, awards, and activities through a repository layer instead of `SampleData`.
-- Google OAuth is enabled in Supabase, and the app gates access behind the `signInWithOAuth` flow (web/desktop works out-of-the-box; mobile just needs platform-specific deep links).
-- Stripe billing UI, Edge Functions, and webhook template are wired in; subscription status updates still depend on the Stripe webhook being deployed.
-- Local analyzer/test runs succeed once Supabase is initialized; remaining blockers are purely deployment-related.
-
-## Next Steps
-
-- Build the Flutter web bundle (`flutter build web`) and deploy it to a Render static site (or another host).
-- Add the Render domain to Google OAuth Authorized JavaScript origins and Supabase Auth redirect settings, then smoke-test sign-in + saving end-to-end.
-- Once hosting is stable, expand coverage (widget tests, auth guards, premium gating via the `profiles` table/Stripe) as needed.
-
-
+Older cloud architecture notes are archived under `docs/legacy/` and do not describe
+this version. Removing integrations from source does not cancel existing subscriptions,
+delete hosted records, or shut down previously deployed services.

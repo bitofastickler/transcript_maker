@@ -93,3 +93,8 @@ app.*.symbols
 
 # Obfuscation related
 app.*.map.json
+
+# Local transcript exports and review artifacts
+transcript-records*.json
+*_transcript.pdf
+review-artifacts/

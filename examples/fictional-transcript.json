@@ -1,0 +1,35 @@
+{
+  "format": "transcript-maker",
+  "version": 1,
+  "students": [
+    {
+      "id": "example-student",
+      "first_name": "Alex",
+      "last_name": "Example",
+      "date_of_birth": "2010-03-14T00:00:00.000",
+      "target_grad_year": 2028,
+      "email": null,
+      "phone": null,
+      "address": null,
+      "notes": "Entirely fictional demonstration record.",
+      "enrollments": [
+        {
+          "id": "example-course",
+          "student_id": "example-student",
+          "grade_level": 10,
+          "year_label": "2025-2026",
+          "course_title": "English Literature",
+          "subject_category": "English / Language Arts",
+          "description": "Fictional example",
+          "credit_hours": 1.0,
+          "grade_letter": "A",
+          "is_pass_fail": false,
+          "is_weighted": false,
+          "weight_multiplier": 1.0
+        }
+      ],
+      "awards": [],
+      "activities": []
+    }
+  ]
+}

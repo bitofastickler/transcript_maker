@@ -5,25 +5,16 @@ import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart' as pdf;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/foundation.dart';
+import 'local_store.dart';
+import 'models/student.dart';
+import 'transcript_calculator.dart';
+import 'platform/unsaved.dart';
 
-import 'env/env.dart';
+final studentRepository = LocalStudentStore();
 
-late final StudentRepository studentRepository;
-late final ProfileRepository profileRepository;
-late final BillingRepository billingRepository;
-
-Future<void> main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  await AppEnv.load();
-  await Supabase.initialize(
-    url: AppEnv.supabaseUrl,
-    anonKey: AppEnv.supabaseAnonKey,
-  );
-  studentRepository = StudentRepository(Supabase.instance.client);
-  profileRepository = ProfileRepository(Supabase.instance.client);
-  billingRepository = BillingRepository(Supabase.instance.client);
   runApp(const HomeschoolLedgerApp());
 }
 
@@ -36,130 +27,12 @@ class HomeschoolLedgerApp extends StatelessWidget {
       title: 'Homeschool Transcript Maker',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color.fromARGB(232, 2, 139, 219)),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color.fromARGB(232, 2, 139, 219),
+        ),
         useMaterial3: true,
       ),
-      home: const AuthGate(),
-    );
-  }
-}
-
-class AuthGate extends StatefulWidget {
-  const AuthGate({super.key});
-
-  @override
-  State<AuthGate> createState() => _AuthGateState();
-}
-
-class _AuthGateState extends State<AuthGate> {
-  Session? _session;
-  StreamSubscription<AuthState>? _authSub;
-
-  @override
-  void initState() {
-    super.initState();
-    final auth = Supabase.instance.client.auth;
-    _session = auth.currentSession;
-    _authSub = auth.onAuthStateChange.listen((data) {
-      setState(() {
-        _session = data.session;
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _authSub?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_session == null) {
-      return const AuthPage();
-    }
-    return const StudentsPage();
-  }
-}
-
-class AuthPage extends StatefulWidget {
-  const AuthPage({super.key});
-
-  @override
-  State<AuthPage> createState() => _AuthPageState();
-}
-
-class _AuthPageState extends State<AuthPage> {
-  bool _signingIn = false;
-
-  Future<void> _signInWithGoogle() async {
-    if (_signingIn) return;
-    setState(() {
-      _signingIn = true;
-    });
-    try {
-      await Supabase.instance.client.auth.signInWithOAuth(OAuthProvider.google);
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to sign in: $error')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _signingIn = false;
-        });
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 360),
-          child: Card(
-            elevation: 4,
-            margin: const EdgeInsets.all(24),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.school, size: 48, color: theme.colorScheme.primary),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Sign in to Transcript Maker',
-                    style: theme.textTheme.titleLarge,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Connect with Google to access your students and transcripts.',
-                    style: theme.textTheme.bodyMedium,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 24),
-                  FilledButton.icon(
-                    onPressed: _signingIn ? null : _signInWithGoogle,
-                    icon: _signingIn
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.login),
-                    label: Text(_signingIn ? 'Signing in...' : 'Sign in with Google'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+      home: const StudentsPage(),
     );
   }
 }
@@ -187,24 +60,60 @@ class _StudentsPageState extends State<StudentsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Students'),
+        title: const Text('Transcript Maker'),
         actions: [
           IconButton(
-            tooltip: 'Billing',
-            icon: const Icon(Icons.credit_card),
-            onPressed: _openBilling,
+            tooltip: 'Open transcript file',
+            icon: const Icon(Icons.folder_open),
+            onPressed: (_loading || _mutating) ? null : _openFile,
           ),
           IconButton(
-            tooltip: 'Sign out',
-            icon: const Icon(Icons.logout),
-            onPressed: _signOut,
+            tooltip: 'Save transcript file',
+            icon: const Icon(Icons.save_alt),
+            onPressed: (_loading || _mutating) ? null : _saveFile,
+          ),
+          IconButton(
+            tooltip: 'Help and privacy',
+            icon: const Icon(Icons.help_outline),
+            onPressed: _showHelp,
           ),
         ],
       ),
       body: Column(
         children: [
-          if (_loading || _mutating) const LinearProgressIndicator(minHeight: 2),
-          Expanded(child: _buildBody()),
+          if (_loading || _mutating)
+            const LinearProgressIndicator(minHeight: 2),
+          Material(
+            color: Theme.of(context).colorScheme.secondaryContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  const Icon(Icons.computer, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      studentRepository.hasUnsavedChanges
+                          ? 'Unsaved changes. Save a transcript file before closing.'
+                          : 'Local files only. Keep your saved JSON file to reopen your work.',
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _mutating ? null : _saveFile,
+                    child: const Text('Save file'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1120),
+                child: _buildBody(),
+              ),
+            ),
+          ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -233,10 +142,7 @@ class _StudentsPageState extends State<StudentsPage> {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 8),
-              Text(
-                _errorMessage!,
-                textAlign: TextAlign.center,
-              ),
+              Text(_errorMessage!, textAlign: TextAlign.center),
               const SizedBox(height: 16),
               FilledButton(
                 onPressed: () => _loadStudents(),
@@ -248,7 +154,65 @@ class _StudentsPageState extends State<StudentsPage> {
       );
     }
     final listContent = _students.isEmpty
-        ? const EmptyState(message: 'No students yet. Tap "Add Student" to get started.')
+        ? Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 620),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 56,
+                  horizontal: 24,
+                ),
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.school_outlined,
+                      size: 56,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Build a homeschool transcript',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Courses, GPA, and achievements in one place. Save an editable file on your device and export a PDF when you need it.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      alignment: WrapAlignment.center,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: _openStudentForm,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add your first student'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: _openFile,
+                          icon: const Icon(Icons.folder_open),
+                          label: const Text('Open a file'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    TextButton(
+                      onPressed: _loadExample,
+                      child: const Text('Try a fictional example'),
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Free. No account. No student-data uploads.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          )
         : ListView.separated(
             padding: const EdgeInsets.all(16),
             itemBuilder: (context, index) {
@@ -275,10 +239,7 @@ class _StudentsPageState extends State<StudentsPage> {
     return RefreshIndicator(
       onRefresh: _refreshStudents,
       child: _students.isEmpty
-          ? ListView(
-              padding: const EdgeInsets.all(16),
-              children: [listContent],
-            )
+          ? ListView(padding: const EdgeInsets.all(16), children: [listContent])
           : listContent,
     );
   }
@@ -314,9 +275,9 @@ class _StudentsPageState extends State<StudentsPage> {
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Unable to save student: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Unable to save student: $error')));
     } finally {
       if (mounted) {
         setState(() {
@@ -412,398 +373,117 @@ class _StudentsPageState extends State<StudentsPage> {
     }
   }
 
-  Future<void> _signOut() async {
+  Future<void> _saveFile() async {
+    setState(() => _mutating = true);
     try {
-      await Supabase.instance.client.auth.signOut();
-    } catch (error) {
+      final saved = await studentRepository.saveFile();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Unable to sign out: $error')),
-      );
-    }
-  }
-
-  void _openBilling() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const BillingPage()),
-    );
-  }
-}
-
-class BillingPage extends StatefulWidget {
-  const BillingPage({super.key});
-
-  @override
-  State<BillingPage> createState() => _BillingPageState();
-}
-
-class _BillingPageState extends State<BillingPage> {
-  ProfileRecord? _profile;
-  bool _loading = true;
-  bool _working = false;
-  String? _errorMessage;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_loadProfile());
-  }
-
-  Future<void> _loadProfile() async {
-    setState(() {
-      _loading = true;
-      _errorMessage = null;
-    });
-    try {
-      final profile = await profileRepository.fetchProfile();
-      if (!mounted) return;
-      setState(() {
-        _profile = profile;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _errorMessage = error.toString();
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _startSubscription() async {
-    final priceId = AppEnv.stripePriceId;
-    if (priceId == null || priceId.isEmpty) {
-      _showError('Missing STRIPE_PRICE_ID. Add it to your environment.');
-      return;
-    }
-    await _launchBillingFlow(
-      () => billingRepository.createCheckoutSession(
-        priceId: priceId,
-        returnUrl: _returnUrl(),
-      ),
-    );
-  }
-
-  Future<void> _openPortal() async {
-    await _launchBillingFlow(
-      () => billingRepository.createPortalSession(returnUrl: _returnUrl()),
-    );
-  }
-
-  Future<void> _launchBillingFlow(Future<Uri> Function() getUrl) async {
-    if (_working) return;
-    setState(() {
-      _working = true;
-      _errorMessage = null;
-    });
-    try {
-      final url = await getUrl();
-      final launched = await launchUrl(url, mode: LaunchMode.externalApplication);
-      if (!launched) {
-        throw StateError('Could not open billing URL.');
-      }
-    } catch (error) {
-      final message = error.toString();
-      if (message.contains('No Stripe customer found')) {
-        _showError(
-          'No existing billing portal was found for this account. If you just subscribed, refresh and try again.',
+      if (saved) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              kIsWeb
+                  ? 'Download started. Keep the JSON file to reopen your work.'
+                  : 'Transcript file saved.',
+            ),
+          ),
         );
-      } else {
-        _showError(message);
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not save the file. Your work is still here; please try again.',
+            ),
+          ),
+        );
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _working = false;
-        });
-      }
+      if (mounted) setState(() => _mutating = false);
     }
   }
 
-  void _showError(String message) {
-    if (!mounted) return;
-    setState(() {
-      _errorMessage = message;
-    });
-  }
-
-  String _returnUrl() {
-    final base = Uri.base;
-    if (base.hasScheme && base.host.isNotEmpty) {
-      return base.origin;
-    }
-    return 'http://localhost';
-  }
-
-  bool _isSubscribed(ProfileRecord profile) {
-    final status = profile.subscriptionStatus?.toLowerCase();
-    return status == 'active' || status == 'trialing';
-  }
-
-  String _statusLabel(ProfileRecord profile) {
-    final status = profile.subscriptionStatus;
-    if (status == null || status.isEmpty) return 'Not subscribed';
-    switch (status.toLowerCase()) {
-      case 'active':
-        return 'Active';
-      case 'trialing':
-        return 'Trial';
-      case 'past_due':
-        return 'Past due';
-      case 'canceled':
-        return 'Canceled';
-      case 'incomplete':
-        return 'Incomplete';
-      case 'unpaid':
-        return 'Unpaid';
-      default:
-        return status;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Billing'),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh),
-            onPressed: _loading ? null : _loadProfile,
+  Future<void> _openFile() async {
+    if (studentRepository.hasUnsavedChanges) {
+      final replace = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Replace unsaved work?'),
+          content: const Text(
+            'Opening a file replaces all students in this session. Cancel and save your current file first to keep them.',
           ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _profile == null
-              ? _BillingEmptyState(
-                  message: _errorMessage ??
-                      'Unable to load billing details. Try again.',
-                  onRetry: _loadProfile,
-                )
-              : _BillingContent(
-                  profile: _profile!,
-                  statusLabel: _statusLabel(_profile!),
-                  isSubscribed: _isSubscribed(_profile!),
-                  working: _working,
-                  errorMessage: _errorMessage,
-                  onSubscribe: _startSubscription,
-                  onManage: _openPortal,
-                ),
-    );
-  }
-}
-
-class _BillingContent extends StatelessWidget {
-  const _BillingContent({
-    required this.profile,
-    required this.statusLabel,
-    required this.isSubscribed,
-    required this.working,
-    required this.onSubscribe,
-    required this.onManage,
-    this.errorMessage,
-  });
-
-  final ProfileRecord profile;
-  final String statusLabel;
-  final bool isSubscribed;
-  final bool working;
-  final VoidCallback onSubscribe;
-  final VoidCallback onManage;
-  final String? errorMessage;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final renewal = profile.currentPeriodEnd;
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        Card(
-          elevation: 3,
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Homeschool Transcript Maker', style: theme.textTheme.titleLarge),
-                const SizedBox(height: 6),
-                Text('Annual subscription', style: theme.textTheme.bodyMedium),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    _StatusPill(label: statusLabel, active: isSubscribed),
-                    const SizedBox(width: 12),
-                    if (renewal != null)
-                      Text(
-                        'Renews ${_formatDate(renewal)}',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                  ],
-                ),
-                if (errorMessage != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    errorMessage!,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.error,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 20),
-                if (isSubscribed)
-                  Row(
-                    children: [
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: working ? null : onManage,
-                          icon: working
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Icon(Icons.manage_accounts),
-                          label: const Text('Manage subscription'),
-                        ),
-                      ),
-                    ],
-                  )
-                else
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      FilledButton.icon(
-                        onPressed: working ? null : onSubscribe,
-                        icon: working
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.lock_open),
-                        label: const Text('Start subscription'),
-                      ),
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        onPressed: working ? null : onManage,
-                        icon: const Icon(Icons.manage_accounts),
-                        label: const Text('Manage/cancel subscription'),
-                      ),
-                    ],
-                  ),
-                if (!isSubscribed) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    'Includes a one-month free trial for first-time subscribers. Use Manage/cancel subscription any time.',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ],
-              ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
             ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('What you get', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 12),
-                _BulletRow(text: 'Unlimited students, classes, awards, and activities'),
-                _BulletRow(text: 'Transcript export and GPA calculations'),
-                _BulletRow(text: 'Secure sync with your Google account'),
-              ],
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Replace'),
             ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _BillingEmptyState extends StatelessWidget {
-  const _BillingEmptyState({
-    required this.message,
-    required this.onRetry,
-  });
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.receipt_long, size: 48),
-            const SizedBox(height: 12),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            FilledButton(onPressed: onRetry, child: const Text('Try again')),
           ],
         ),
-      ),
-    );
+      );
+      if (replace != true) return;
+    }
+    setState(() => _mutating = true);
+    try {
+      if (await studentRepository.openFile()) await _loadStudents();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'This file could not be opened. Choose a valid Transcript Maker JSON file. Your current work is unchanged.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _mutating = false);
+    }
   }
-}
 
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.label, required this.active});
-
-  final String label;
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final color = active ? theme.colorScheme.primary : theme.colorScheme.outline;
-    final background = active
-        ? theme.colorScheme.primary.withOpacity(0.12)
-        : theme.colorScheme.surfaceContainerHighest;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color),
-      ),
-      child: Text(
-        label,
-        style: theme.textTheme.labelMedium?.copyWith(color: color),
-      ),
-    );
+  Future<void> _loadExample() async {
+    if (_mutating || _students.isNotEmpty) return;
+    setState(() => _mutating = true);
+    try {
+      final bytes = await rootBundle.load('examples/fictional-transcript.json');
+      for (final student in TranscriptFile.decode(bytes.buffer.asUint8List())) {
+        await studentRepository.createStudent(student);
+      }
+      if (mounted) await _loadStudents();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to load the example.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _mutating = false);
+    }
   }
-}
 
-class _BulletRow extends StatelessWidget {
-  const _BulletRow({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          const Icon(Icons.check_circle, size: 18),
-          const SizedBox(width: 8),
-          Expanded(child: Text(text)),
+  void _showHelp() {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Your records, on your device'),
+        content: const SingleChildScrollView(
+          child: Text(
+            '1. Add a student and their courses, awards, and activities.\n'
+            '2. Save a transcript file (.json) to keep ALL students and reopen them later.\n'
+            '3. Export a PDF from a student record for printing or sharing. A PDF is not an editable backup.\n\n'
+            'No account, subscription, analytics, or student-data uploads. Work stays in memory until you save a file. Closing or refreshing can lose unsaved work. Keep a backup somewhere safe. Files are not encrypted by this app.\n\n'
+            'GPA uses credit-weighted letter grades on a 4.0 scale. Weighted courses multiply grade points by the entered multiplier. Pass/fail courses are excluded from GPA; only Pass earns credit. Receiving institutions may use different policies.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Got it'),
+          ),
         ],
       ),
     );
@@ -882,7 +562,7 @@ class StudentDetailPage extends StatefulWidget {
 
   final StudentRecord student;
   final ValueChanged<StudentRecord> onStudentUpdated;
-  final ValueChanged<StudentRecord> onStudentDeleted;
+  final Future<void> Function(StudentRecord) onStudentDeleted;
   final Future<StudentRecord> Function(StudentRecord student) onSaveStudent;
 
   @override
@@ -928,7 +608,7 @@ class _StudentDetailPageState extends State<StudentDetailPage>
         _saveError = null;
       }
     });
-    widget.onStudentUpdated(updated);
+    setUnsavedChanges(true);
   }
 
   Future<void> _addClass() async {
@@ -1112,7 +792,8 @@ class _StudentDetailPageState extends State<StudentDetailPage>
   }
 
   Future<void> _deleteClass(Enrollment enrollment) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('Delete class?'),
@@ -1148,7 +829,8 @@ class _StudentDetailPageState extends State<StudentDetailPage>
   }
 
   Future<void> _deleteAward(Award award) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('Delete award?'),
@@ -1178,13 +860,14 @@ class _StudentDetailPageState extends State<StudentDetailPage>
       ),
     );
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Award ${award.name} deleted')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Award ${award.name} deleted')));
   }
 
   Future<void> _deleteActivity(Activity activity) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('Delete activity?'),
@@ -1220,7 +903,8 @@ class _StudentDetailPageState extends State<StudentDetailPage>
   }
 
   Future<void> _deleteStudent() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('Delete student?'),
@@ -1241,9 +925,13 @@ class _StudentDetailPageState extends State<StudentDetailPage>
         ) ??
         false;
     if (!confirmed) return;
-    widget.onStudentDeleted(_student);
+    await widget.onStudentDeleted(_student);
     if (!mounted) return;
-    Navigator.of(context).pop();
+    setState(() => _isDirty = false);
+    setUnsavedChanges(studentRepository.hasUnsavedChanges);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop();
+    });
   }
 
   Future<void> _saveChanges() async {
@@ -1254,13 +942,22 @@ class _StudentDetailPageState extends State<StudentDetailPage>
     });
     try {
       final saved = await widget.onSaveStudent(_student);
+      if (!mounted) return;
       _updateStudent(saved, markDirty: false);
+      widget.onStudentUpdated(saved);
+      setUnsavedChanges(studentRepository.hasUnsavedChanges);
       setState(() {
         _isDirty = false;
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Changes saved')),
+        SnackBar(
+          content: Text(
+            kIsWeb
+                ? 'Download started. Keep the JSON file to reopen your work.'
+                : 'Transcript file saved',
+          ),
+        ),
       );
     } catch (error) {
       if (!mounted) return;
@@ -1302,7 +999,8 @@ class _StudentDetailPageState extends State<StudentDetailPage>
 
   Widget _buildSaveAction(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 760;
-    final canSave = _isDirty && !_isSaving;
+    final canSave =
+        (_isDirty || studentRepository.hasUnsavedChanges) && !_isSaving;
     final icon = _isSaving
         ? const SizedBox(
             width: 16,
@@ -1313,8 +1011,8 @@ class _StudentDetailPageState extends State<StudentDetailPage>
     final tooltip = _isSaving
         ? 'Saving changes'
         : _isDirty
-            ? 'Save changes'
-            : 'No unsaved changes';
+        ? 'Save changes'
+        : 'No unsaved changes';
 
     if (compact) {
       return IconButton(
@@ -1329,7 +1027,15 @@ class _StudentDetailPageState extends State<StudentDetailPage>
       child: FilledButton.tonalIcon(
         onPressed: canSave ? _saveChanges : null,
         icon: icon,
-        label: Text(_isSaving ? 'Saving' : _isDirty ? 'Save' : 'Saved'),
+        label: Text(
+          _isSaving
+              ? 'Saving'
+              : _isDirty
+              ? 'Save file'
+              : studentRepository.hasUnsavedChanges
+              ? 'Save file'
+              : 'Saved',
+        ),
       ),
     );
   }
@@ -1342,82 +1048,116 @@ class _StudentDetailPageState extends State<StudentDetailPage>
   @override
   Widget build(BuildContext context) {
     final snapshot = _snapshot;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_student.fullName),
-        actions: [
-          _buildSaveAction(context),
-          IconButton(
-            tooltip: 'Edit student',
-            icon: const Icon(Icons.edit),
-            onPressed: _isSaving ? null : _editStudent,
-          ),
-          IconButton(
-            tooltip: 'Delete student',
-            icon: const Icon(Icons.delete_outline),
-            onPressed: _isSaving ? null : _deleteStudent,
-          ),
-          IconButton(
-            tooltip: 'Export transcript to PDF',
-            icon: const Icon(Icons.picture_as_pdf),
-            onPressed: _isSaving
-                ? null
-                : () => TranscriptPdfService.export(
-                    context: context,
-                    student: _student,
-                    snapshot: snapshot,
-                  ),
-          ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'Classes'),
-            Tab(text: 'Awards'),
-            Tab(text: 'Activities'),
-          ],
-        ),
-      ),
-      floatingActionButton: _buildFab(),
-      body: Stack(
-        children: [
-          Column(
-            children: [
-              StudentSummaryHeader(student: _student, snapshot: snapshot),
-              const Divider(height: 1),
-              Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(bottom: _isDirty ? 96 : 0),
-                  child: TabBarView(
-                    controller: _tabController,
-                    children: [
-                      ClassesTab(
-                        student: _student,
-                        onEditEnrollment: _editClass,
-                        onDeleteEnrollment: _deleteClass,
-                      ),
-                      AwardsTab(
-                        student: _student,
-                        onEditAward: _editAward,
-                        onDeleteAward: _deleteAward,
-                      ),
-                      ActivitiesTab(
-                        student: _student,
-                        onEditActivity: _editActivity,
-                        onDeleteActivity: _deleteActivity,
-                      ),
-                    ],
-                  ),
-                ),
+    return PopScope(
+      canPop: !_isDirty && !_isSaving,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop || _isSaving) return;
+        final discard = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Discard student edits?'),
+            content: const Text(
+              'Save a transcript file to keep these changes before leaving.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Keep editing'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Discard edits'),
               ),
             ],
           ),
-          _SaveBanner(
-            visible: _isDirty,
-            isSaving: _isSaving,
-            errorMessage: _saveError,
+        );
+        if (discard != true || !mounted) return;
+        setState(() => _isDirty = false);
+        setUnsavedChanges(studentRepository.hasUnsavedChanges);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) Navigator.of(context).pop();
+        });
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(_student.fullName),
+          actions: [
+            _buildSaveAction(context),
+            IconButton(
+              tooltip: 'Edit student',
+              icon: const Icon(Icons.edit),
+              onPressed: _isSaving ? null : _editStudent,
+            ),
+            IconButton(
+              tooltip: 'Delete student',
+              icon: const Icon(Icons.delete_outline),
+              onPressed: _isSaving ? null : _deleteStudent,
+            ),
+            IconButton(
+              tooltip: 'Export transcript to PDF',
+              icon: const Icon(Icons.picture_as_pdf),
+              onPressed: _isSaving
+                  ? null
+                  : () => TranscriptPdfService.export(
+                      context: context,
+                      student: _student,
+                      snapshot: snapshot,
+                    ),
+            ),
+          ],
+          bottom: TabBar(
+            controller: _tabController,
+            tabs: const [
+              Tab(text: 'Classes'),
+              Tab(text: 'Awards'),
+              Tab(text: 'Activities'),
+            ],
           ),
-        ],
+        ),
+        floatingActionButton: _buildFab(),
+        body: AbsorbPointer(
+          absorbing: _isSaving,
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  StudentSummaryHeader(student: _student, snapshot: snapshot),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(bottom: _isDirty ? 96 : 0),
+                      child: TabBarView(
+                        controller: _tabController,
+                        children: [
+                          ClassesTab(
+                            student: _student,
+                            onEditEnrollment: _editClass,
+                            onDeleteEnrollment: _deleteClass,
+                          ),
+                          AwardsTab(
+                            student: _student,
+                            onEditAward: _editAward,
+                            onDeleteAward: _deleteAward,
+                          ),
+                          ActivitiesTab(
+                            student: _student,
+                            onEditActivity: _editActivity,
+                            onDeleteActivity: _deleteActivity,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              _SaveBanner(
+                visible: _isDirty,
+                isSaving: _isSaving,
+                errorMessage: _saveError,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1468,7 +1208,7 @@ class _SaveBanner extends StatelessWidget {
                         isSaving
                             ? 'Saving changes...'
                             : errorMessage ??
-                                'Use the Save control in the top bar to sync updates.',
+                                  'Use the Save control in the top bar to sync updates.',
                         style: messageStyle,
                       ),
                     ],
@@ -1587,8 +1327,10 @@ class ClassesTab extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Wrap(
+                  spacing: 24,
+                  runSpacing: 12,
+                  alignment: WrapAlignment.spaceBetween,
                   children: [
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1597,9 +1339,7 @@ class ClassesTab extends StatelessWidget {
                           group.yearLabel,
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
-                        Text(
-                          group.gradeLevel.label,
-                        ),
+                        Text(group.gradeLevel.label),
                       ],
                     ),
                     Column(
@@ -1607,7 +1347,7 @@ class ClassesTab extends StatelessWidget {
                       children: [
                         Text('GPA ${groupGpa.toStringAsFixed(2)}'),
                         Text('Weighted ${groupWeightedGpa.toStringAsFixed(2)}'),
-                        Text('${credits.toStringAsFixed(1)} credits'),
+                        Text('${credits.toStringAsFixed(2)} credits'),
                       ],
                     ),
                   ],
@@ -1764,7 +1504,7 @@ class _EnrollmentTile extends StatelessWidget {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     Text(
-                      '${enrollment.creditHours.toStringAsFixed(1)} credits',
+                      '${enrollment.creditHours.toStringAsFixed(2)} credits',
                     ),
                     if (enrollment.isWeighted)
                       Row(
@@ -1888,7 +1628,7 @@ class _ActivityTile extends StatelessWidget {
           children: [
             CircleAvatar(
               backgroundColor: colorScheme.secondaryContainer,
-              child: Text('${activity.hours.toStringAsFixed(0)}h'),
+              child: Text('${activity.hours.toStringAsFixed(2)}h'),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -2191,14 +1931,14 @@ class _StudentFormSheetState extends State<StudentFormSheet> {
                   hintText: 'e.g. 2026',
                 ),
                 keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return 'Required';
                   }
                   final parsed = int.tryParse(value);
-                  if (parsed == null || parsed < 2020 || parsed > 2040) {
-                    return 'Enter a year between 2020 and 2040';
+                  if (parsed == null || parsed < 1900 || parsed > 2200) {
+                    return 'Enter a year between 1900 and 2200';
                   }
                   return null;
                 },
@@ -2244,8 +1984,8 @@ class _StudentFormSheetState extends State<StudentFormSheet> {
 
   Future<void> _pickDob() async {
     final now = DateTime.now();
-    final earliest = DateTime(now.year - 25);
-    final latest = DateTime(now.year - 5, 12, 31);
+    final earliest = DateTime(1900);
+    final latest = DateTime(now.year, now.month, now.day);
     final picked = await showDatePicker(
       context: context,
       initialDate: _dob ?? DateTime(now.year - 14, now.month, now.day),
@@ -2514,13 +2254,13 @@ class _EnrollmentFormSheetState extends State<EnrollmentFormSheet> {
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
                 initialValue: _selectedSubjectOption,
-                decoration: const InputDecoration(labelText: 'Subject category'),
+                decoration: const InputDecoration(
+                  labelText: 'Subject category',
+                ),
                 items: _subjectCategoryOptions
                     .map(
-                      (option) => DropdownMenuItem(
-                        value: option,
-                        child: Text(option),
-                      ),
+                      (option) =>
+                          DropdownMenuItem(value: option, child: Text(option)),
                     )
                     .toList(),
                 validator: (value) =>
@@ -2548,8 +2288,9 @@ class _EnrollmentFormSheetState extends State<EnrollmentFormSheet> {
                     hintText: 'Enter category',
                   ),
                   textCapitalization: TextCapitalization.words,
-                  validator: (value) =>
-                      (value == null || value.trim().isEmpty) ? 'Required' : null,
+                  validator: (value) => (value == null || value.trim().isEmpty)
+                      ? 'Required'
+                      : null,
                 ),
               ],
               const SizedBox(height: 16),
@@ -2567,20 +2308,32 @@ class _EnrollmentFormSheetState extends State<EnrollmentFormSheet> {
                 controller: _gradeLetterController,
                 decoration: const InputDecoration(labelText: 'Grade letter'),
                 textCapitalization: TextCapitalization.characters,
-                validator: (value) =>
-                    (value == null || value.isEmpty) ? 'Required' : null,
+                validator: (value) {
+                  final grade = (value ?? '').trim().toUpperCase();
+                  if (_isPassFail) {
+                    return ['PASS', 'FAIL'].contains(grade)
+                        ? null
+                        : 'Enter Pass or Fail';
+                  }
+                  return gradePointTable.containsKey(grade)
+                      ? null
+                      : 'Enter a letter grade from A+ to F';
+                },
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _creditsController,
-                decoration: const InputDecoration(labelText: 'Credits earned'),
+                decoration: const InputDecoration(labelText: 'Course credits'),
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
                 validator: (value) {
                   final parsed = double.tryParse(value?.trim() ?? '');
-                  if (parsed == null || parsed <= 0) {
-                    return 'Enter credits greater than 0';
+                  if (parsed == null ||
+                      !parsed.isFinite ||
+                      parsed <= 0 ||
+                      parsed > 99) {
+                    return 'Enter credits greater than 0 and at most 99';
                   }
                   return null;
                 },
@@ -2624,8 +2377,11 @@ class _EnrollmentFormSheetState extends State<EnrollmentFormSheet> {
                       return null;
                     }
                     final parsed = double.tryParse(value?.trim() ?? '');
-                    if (parsed == null || parsed < 1.0) {
-                      return 'Enter a weight of 1.0 or higher';
+                    if (parsed == null ||
+                        !parsed.isFinite ||
+                        parsed < 1.0 ||
+                        parsed > 10) {
+                      return 'Enter a weight from 1.0 to 10.0';
                     }
                     return null;
                   },
@@ -2847,10 +2603,8 @@ class _AwardFormSheetState extends State<AwardFormSheet> {
                 decoration: const InputDecoration(labelText: 'Category'),
                 items: _awardCategoryOptions
                     .map(
-                      (option) => DropdownMenuItem(
-                        value: option,
-                        child: Text(option),
-                      ),
+                      (option) =>
+                          DropdownMenuItem(value: option, child: Text(option)),
                     )
                     .toList(),
                 validator: (value) =>
@@ -3105,10 +2859,8 @@ class _ActivityFormSheetState extends State<ActivityFormSheet> {
                 decoration: const InputDecoration(labelText: 'Activity type'),
                 items: _activityTypeOptions
                     .map(
-                      (option) => DropdownMenuItem(
-                        value: option,
-                        child: Text(option),
-                      ),
+                      (option) =>
+                          DropdownMenuItem(value: option, child: Text(option)),
                     )
                     .toList(),
                 validator: (value) =>
@@ -3176,8 +2928,11 @@ class _ActivityFormSheetState extends State<ActivityFormSheet> {
                 ),
                 validator: (value) {
                   final parsed = double.tryParse(value?.trim() ?? '');
-                  if (parsed == null || parsed < 0) {
-                    return 'Enter zero or more hours';
+                  if (parsed == null ||
+                      !parsed.isFinite ||
+                      parsed < 0 ||
+                      parsed > 100000) {
+                    return 'Enter hours from 0 to 100000';
                   }
                   return null;
                 },
@@ -3206,82 +2961,6 @@ class _ActivityFormSheetState extends State<ActivityFormSheet> {
   }
 }
 
-class TranscriptSnapshot {
-  const TranscriptSnapshot({
-    required this.weightedGpa,
-    required this.unweightedGpa,
-    required this.earnedCredits,
-    required this.attemptedCredits,
-  });
-
-  final double weightedGpa;
-  final double unweightedGpa;
-  final double earnedCredits;
-  final double attemptedCredits;
-
-  String get weightedGpaString => weightedGpa.toStringAsFixed(2);
-  String get unweightedGpaString => unweightedGpa.toStringAsFixed(2);
-  String get earnedCreditsString => earnedCredits.toStringAsFixed(1);
-  String get attemptedCreditsString => attemptedCredits.toStringAsFixed(1);
-}
-
-class TranscriptCalculator {
-  TranscriptCalculator(this.student);
-
-  final StudentRecord student;
-
-  TranscriptSnapshot build() {
-    final enrollments = student.enrollments;
-    final attemptedCredits = _attemptedCredits(enrollments);
-    final earnedCredits = _earnedCredits(enrollments);
-    final unweightedGpa = gpaFor(enrollments);
-    final weightedGpa = gpaFor(enrollments, weighted: true);
-    return TranscriptSnapshot(
-      weightedGpa: weightedGpa,
-      unweightedGpa: unweightedGpa,
-      earnedCredits: earnedCredits,
-      attemptedCredits: attemptedCredits,
-    );
-  }
-
-  static double gpaFor(List<Enrollment> enrollments, {bool weighted = false}) {
-    final gpaEnrollments = enrollments.where((e) => e.countsTowardGpa).toList();
-    final credits = gpaEnrollments.fold<double>(
-      0,
-      (sum, e) => sum + e.creditHours,
-    );
-    if (credits == 0) {
-      return 0;
-    }
-    final qualityPoints = gpaEnrollments.fold<double>(0, (sum, e) {
-      final base = e.gradePoints ?? 0;
-      final weight = weighted ? e.weightMultiplier : 1.0;
-      return sum + base * e.creditHours * weight;
-    });
-    return qualityPoints / credits;
-  }
-
-  static double _attemptedCredits(List<Enrollment> enrollments) {
-    return enrollments.fold<double>(0, (sum, e) => sum + e.creditHours);
-  }
-
-  static double _earnedCredits(List<Enrollment> enrollments) {
-    double total = 0;
-    for (final enrollment in enrollments) {
-      if (enrollment.isPassFail) {
-        if (enrollment.gradeLetter.toLowerCase() == 'pass') {
-          total += enrollment.creditHours;
-        }
-      } else {
-        if ((enrollment.gradePoints ?? -1) > 0) {
-          total += enrollment.creditHours;
-        }
-      }
-    }
-    return total;
-  }
-}
-
 class TranscriptPdfService {
   static Future<void> export({
     required BuildContext context,
@@ -3289,40 +2968,11 @@ class TranscriptPdfService {
     required TranscriptSnapshot snapshot,
   }) async {
     try {
-      final doc = pw.Document();
-      final yearGroups = _groupEnrollments(student.enrollments);
-      doc.addPage(
-        pw.MultiPage(
-          margin: const pw.EdgeInsets.all(36),
-          build: (pw.Context _) => [
-            _header(student),
-            pw.SizedBox(height: 16),
-            _summary(snapshot),
-            if (yearGroups.isNotEmpty) ...[
-              pw.SizedBox(height: 24),
-              pw.Text('Course Work', style: _sectionTitle),
-              pw.SizedBox(height: 8),
-              ...yearGroups.map(_yearSection),
-            ],
-            if (student.awards.isNotEmpty) ...[
-              pw.SizedBox(height: 24),
-              pw.Text('Awards & Recognitions', style: _sectionTitle),
-              pw.SizedBox(height: 8),
-              _awardsSection(student.awards),
-            ],
-            if (student.activities.isNotEmpty) ...[
-              pw.SizedBox(height: 24),
-              pw.Text('Activities', style: _sectionTitle),
-              pw.SizedBox(height: 8),
-              _activitiesSection(student.activities),
-            ],
-          ],
-        ),
-      );
-      final Uint8List bytes = await doc.save();
+      final bytes = await build(student: student, snapshot: snapshot);
       await Printing.sharePdf(
         bytes: bytes,
-        filename: '${student.fullName.replaceAll(' ', '_')}_transcript.pdf',
+        filename:
+            '${student.fullName.replaceAll(RegExp(r"[^a-zA-Z0-9_-]"), "_")}_transcript.pdf',
       );
     } catch (error) {
       if (!context.mounted) return;
@@ -3330,6 +2980,63 @@ class TranscriptPdfService {
         context,
       ).showSnackBar(SnackBar(content: Text('Unable to export PDF: $error')));
     }
+  }
+
+  static Future<Uint8List> build({
+    required StudentRecord student,
+    required TranscriptSnapshot snapshot,
+  }) async {
+    final regular = pw.Font.ttf(
+      await rootBundle.load('assets/fonts/NotoSans-Regular.ttf'),
+    );
+    final bold = pw.Font.ttf(
+      await rootBundle.load('assets/fonts/NotoSans-Bold.ttf'),
+    );
+    final doc = pw.Document(
+      theme: pw.ThemeData.withFont(base: regular, bold: bold),
+    );
+    final yearGroups = _groupEnrollments(student.enrollments);
+    doc.addPage(
+      pw.MultiPage(
+        margin: const pw.EdgeInsets.all(36),
+        footer: (context) => pw.Align(
+          alignment: pw.Alignment.centerRight,
+          child: pw.Text(
+            '${student.fullName} | Page ${context.pageNumber} of ${context.pagesCount}',
+            style: const pw.TextStyle(fontSize: 8),
+          ),
+        ),
+        build: (pw.Context _) => [
+          _header(student),
+          pw.SizedBox(height: 16),
+          _summary(snapshot),
+          pw.SizedBox(height: 8),
+          pw.Text(
+            'GPA: credit-weighted 4.0 letter scale. Weighted courses multiply grade points by the recorded multiplier. Pass/fail is excluded from GPA; only Pass earns credit.',
+            style: const pw.TextStyle(fontSize: 8),
+          ),
+          if (yearGroups.isNotEmpty) ...[
+            pw.SizedBox(height: 24),
+            pw.Text('Course Work', style: _sectionTitle),
+            pw.SizedBox(height: 8),
+            ...yearGroups.expand(_yearSection),
+          ],
+          if (student.awards.isNotEmpty) ...[
+            pw.SizedBox(height: 24),
+            pw.Text('Awards & Recognitions', style: _sectionTitle),
+            pw.SizedBox(height: 8),
+            _awardsSection(student.awards),
+          ],
+          if (student.activities.isNotEmpty) ...[
+            pw.SizedBox(height: 24),
+            pw.Text('Activities', style: _sectionTitle),
+            pw.SizedBox(height: 8),
+            _activitiesSection(student.activities),
+          ],
+        ],
+      ),
+    );
+    return doc.save();
   }
 
   static pw.Widget _header(StudentRecord student) {
@@ -3382,7 +3089,7 @@ class TranscriptPdfService {
     );
   }
 
-  static pw.Widget _yearSection(_AcademicYearGroup group) {
+  static List<pw.Widget> _yearSection(_AcademicYearGroup group) {
     final unweighted = TranscriptCalculator.gpaFor(group.enrollments);
     final weighted = TranscriptCalculator.gpaFor(
       group.enrollments,
@@ -3392,48 +3099,42 @@ class TranscriptPdfService {
       0,
       (sum, e) => sum + e.creditHours,
     );
-    return pw.Padding(
-      padding: const pw.EdgeInsets.only(bottom: 12),
-      child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
+    return [
+      pw.Text(
+        '${group.yearLabel} | ${group.gradeLevel.label}',
+        style: _subSectionTitle,
+      ),
+      pw.Text(
+        'GPA ${unweighted.toStringAsFixed(2)} | Weighted ${weighted.toStringAsFixed(2)} | ${credits.toStringAsFixed(2)} credits',
+        style: const pw.TextStyle(fontSize: 10),
+      ),
+      pw.SizedBox(height: 6),
+      pw.Table(
+        border: pw.TableBorder(horizontalInside: pw.BorderSide(width: 0.2)),
+        columnWidths: {
+          0: pw.FlexColumnWidth(3),
+          1: pw.FlexColumnWidth(2),
+          2: pw.FlexColumnWidth(1),
+          3: pw.FlexColumnWidth(1),
+          4: pw.FlexColumnWidth(1),
+        },
         children: [
-          pw.Text(
-            '${group.yearLabel} | ${group.gradeLevel.label}',
-            style: _subSectionTitle,
-          ),
-          pw.Text(
-            'GPA ${unweighted.toStringAsFixed(2)} | Weighted ${weighted.toStringAsFixed(2)} | ${credits.toStringAsFixed(1)} credits',
-            style: const pw.TextStyle(fontSize: 10),
-          ),
-          pw.SizedBox(height: 6),
-          pw.Table(
-            border: pw.TableBorder(horizontalInside: pw.BorderSide(width: 0.2)),
-            columnWidths: {
-              0: pw.FlexColumnWidth(3),
-              1: pw.FlexColumnWidth(2),
-              2: pw.FlexColumnWidth(1),
-              3: pw.FlexColumnWidth(1),
-              4: pw.FlexColumnWidth(1),
-            },
+          pw.TableRow(
+            repeat: true,
+            decoration: const pw.BoxDecoration(color: pdf.PdfColors.grey200),
             children: [
-              pw.TableRow(
-                decoration: const pw.BoxDecoration(
-                  color: pdf.PdfColors.grey200,
-                ),
-                children: [
-                  _tableHeaderCell('Course'),
-                  _tableHeaderCell('Category'),
-                  _tableHeaderCell('Grade'),
-                  _tableHeaderCell('Credits'),
-                  _tableHeaderCell('Weighted'),
-                ],
-              ),
-              ...group.enrollments.map(_enrollmentRow),
+              _tableHeaderCell('Course'),
+              _tableHeaderCell('Category'),
+              _tableHeaderCell('Grade'),
+              _tableHeaderCell('Credits'),
+              _tableHeaderCell('Weighted'),
             ],
           ),
+          ...group.enrollments.map(_enrollmentRow),
         ],
       ),
-    );
+      pw.SizedBox(height: 12),
+    ];
   }
 
   static pw.TableRow _enrollmentRow(Enrollment enrollment) {
@@ -3442,8 +3143,10 @@ class TranscriptPdfService {
         _tableCell(enrollment.courseTitle),
         _tableCell(enrollment.subjectCategory),
         _tableCell(enrollment.gradeLetter),
-        _tableCell(enrollment.creditHours.toStringAsFixed(1)),
-        _tableCell(enrollment.isWeighted ? 'Yes' : 'No'),
+        _tableCell(enrollment.creditHours.toStringAsFixed(2)),
+        _tableCell(
+          enrollment.isWeighted ? '${enrollment.weightMultiplier}x' : 'No',
+        ),
       ],
     );
   }
@@ -3473,7 +3176,7 @@ class TranscriptPdfService {
             (activity) => pw.Padding(
               padding: const pw.EdgeInsets.symmetric(vertical: 4),
               child: pw.Text(
-                '- ${activity.title} (${activity.type}) | ${activity.organization} | ${activity.hours.toStringAsFixed(0)} hours | Grade ${activity.gradeLevel}',
+                '- ${activity.title} (${activity.type}) | ${activity.organization} | ${activity.hours.toStringAsFixed(2)} hours | Grade ${activity.gradeLevel}',
                 style: const pw.TextStyle(fontSize: 11),
               ),
             ),
@@ -3509,713 +3212,6 @@ class TranscriptPdfService {
   );
 }
 
-class ProfileRecord {
-  const ProfileRecord({
-    required this.id,
-    this.displayName,
-    this.avatarUrl,
-    this.stripeCustomerId,
-    this.subscriptionStatus,
-    this.subscriptionTier,
-    this.currentPeriodEnd,
-    this.createdAt,
-    this.updatedAt,
-  });
-
-  final String id;
-  final String? displayName;
-  final String? avatarUrl;
-  final String? stripeCustomerId;
-  final String? subscriptionStatus;
-  final String? subscriptionTier;
-  final DateTime? currentPeriodEnd;
-  final DateTime? createdAt;
-  final DateTime? updatedAt;
-
-  factory ProfileRecord.fromMap(Map<String, dynamic> row) {
-    return ProfileRecord(
-      id: row['id'] as String,
-      displayName: row['display_name'] as String?,
-      avatarUrl: row['avatar_url'] as String?,
-      stripeCustomerId: row['stripe_customer_id'] as String?,
-      subscriptionStatus: row['subscription_status'] as String?,
-      subscriptionTier: row['subscription_tier'] as String?,
-      currentPeriodEnd: _parseDate(row['current_period_end']),
-      createdAt: _parseDate(row['created_at']),
-      updatedAt: _parseDate(row['updated_at']),
-    );
-  }
-}
-
-class StudentRecord {
-  const StudentRecord({
-    required this.id,
-    required this.firstName,
-    required this.lastName,
-    required this.dateOfBirth,
-    required this.targetGradYear,
-    this.email,
-    this.phone,
-    this.address,
-    this.notes,
-    this.enrollments = const [],
-    this.awards = const [],
-    this.activities = const [],
-    this.ownerId,
-    this.createdAt,
-    this.updatedAt,
-  });
-
-  final String id;
-  final String firstName;
-  final String lastName;
-  final DateTime dateOfBirth;
-  final int targetGradYear;
-  final String? email;
-  final String? phone;
-  final String? address;
-  final String? notes;
-  final List<Enrollment> enrollments;
-  final List<Award> awards;
-  final List<Activity> activities;
-  final String? ownerId;
-  final DateTime? createdAt;
-  final DateTime? updatedAt;
-
-  String get fullName => '$firstName $lastName';
-
-  StudentRecord copyWith({
-    String? firstName,
-    String? lastName,
-    DateTime? dateOfBirth,
-    int? targetGradYear,
-    String? email,
-    String? phone,
-    String? address,
-    String? notes,
-    List<Enrollment>? enrollments,
-    List<Award>? awards,
-    List<Activity>? activities,
-    String? ownerId,
-    DateTime? createdAt,
-    DateTime? updatedAt,
-  }) {
-    return StudentRecord(
-      id: id,
-      firstName: firstName ?? this.firstName,
-      lastName: lastName ?? this.lastName,
-      dateOfBirth: dateOfBirth ?? this.dateOfBirth,
-      targetGradYear: targetGradYear ?? this.targetGradYear,
-      email: email ?? this.email,
-      phone: phone ?? this.phone,
-      address: address ?? this.address,
-      notes: notes ?? this.notes,
-      enrollments: enrollments ?? this.enrollments,
-      awards: awards ?? this.awards,
-      activities: activities ?? this.activities,
-      ownerId: ownerId ?? this.ownerId,
-      createdAt: createdAt ?? this.createdAt,
-      updatedAt: updatedAt ?? this.updatedAt,
-    );
-  }
-
-  factory StudentRecord.fromMap(Map<String, dynamic> row) {
-    final enrollmentsData = _asList(row['enrollments'])
-        .map((item) => Enrollment.fromMap(item))
-        .toList();
-    final awardsData =
-        _asList(row['awards']).map((item) => Award.fromMap(item)).toList();
-    final activitiesData =
-        _asList(row['activities']).map((item) => Activity.fromMap(item)).toList();
-    return StudentRecord(
-      id: row['id'] as String,
-      firstName: row['first_name'] as String,
-      lastName: row['last_name'] as String,
-      dateOfBirth: _parseDate(row['date_of_birth'])!,
-      targetGradYear: (row['target_grad_year'] as num).toInt(),
-      email: row['email'] as String?,
-      phone: row['phone'] as String?,
-      address: row['address'] as String?,
-      notes: row['notes'] as String?,
-      enrollments: enrollmentsData,
-      awards: awardsData,
-      activities: activitiesData,
-      ownerId: row['owner_id'] as String?,
-      createdAt: _parseDate(row['created_at']),
-      updatedAt: _parseDate(row['updated_at']),
-    );
-  }
-
-  Map<String, dynamic> toRow({required String ownerId}) {
-    return {
-      'id': id,
-      'owner_id': ownerId,
-      'first_name': firstName,
-      'last_name': lastName,
-      'date_of_birth': dateOfBirth.toIso8601String(),
-      'target_grad_year': targetGradYear,
-      'email': email,
-      'phone': phone,
-      'address': address,
-      'notes': notes,
-    };
-  }
-}
-
-enum GradeLevel {
-  grade9(9, '9th Grade'),
-  grade10(10, '10th Grade'),
-  grade11(11, '11th Grade'),
-  grade12(12, '12th Grade');
-
-  const GradeLevel(this.value, this.label);
-
-  final int value;
-  final String label;
-}
-
-class Enrollment {
-  const Enrollment({
-    required this.id,
-    required this.studentId,
-    required this.gradeLevel,
-    required this.yearLabel,
-    required this.courseTitle,
-    required this.subjectCategory,
-    required this.description,
-    required this.creditHours,
-    required this.gradeLetter,
-    this.isPassFail = false,
-    this.isWeighted = false,
-    this.weightMultiplier = 1.0,
-  });
-
-  final String id;
-  final String studentId;
-  final GradeLevel gradeLevel;
-  final String yearLabel;
-  final String courseTitle;
-  final String subjectCategory;
-  final String description;
-  final double creditHours;
-  final String gradeLetter;
-  final bool isPassFail;
-  final bool isWeighted;
-  final double weightMultiplier;
-
-  bool get countsTowardGpa => !isPassFail && gradePoints != null;
-  double? get gradePoints => _gradePointTable[gradeLetter.toUpperCase()];
-
-  factory Enrollment.fromMap(Map<String, dynamic> row) {
-    return Enrollment(
-      id: row['id'] as String,
-      studentId: row['student_id'] as String,
-      gradeLevel: _gradeLevelFromValue((row['grade_level'] as num).toInt()),
-      yearLabel: row['year_label'] as String? ?? '',
-      courseTitle: row['course_title'] as String? ?? '',
-      subjectCategory: row['subject_category'] as String? ?? '',
-      description: row['description'] as String? ?? '',
-      creditHours: _parseDouble(row['credit_hours']) ?? 0,
-      gradeLetter: row['grade_letter'] as String? ?? '',
-      isPassFail: row['is_pass_fail'] as bool? ?? false,
-      isWeighted: row['is_weighted'] as bool? ?? false,
-      weightMultiplier: _parseDouble(row['weight_multiplier']) ?? 1.0,
-    );
-  }
-
-  Map<String, dynamic> toRow({required String ownerId}) {
-    return {
-      'owner_id': ownerId,
-      'student_id': studentId,
-      'grade_level': gradeLevel.value,
-      'year_label': yearLabel,
-      'course_title': courseTitle,
-      'subject_category': subjectCategory,
-      'description': description,
-      'credit_hours': creditHours,
-      'grade_letter': gradeLetter,
-      'is_pass_fail': isPassFail,
-      'is_weighted': isWeighted,
-      'weight_multiplier': weightMultiplier,
-    };
-  }
-}
-
-class Award {
-  const Award({
-    required this.id,
-    required this.studentId,
-    required this.name,
-    required this.description,
-    required this.organization,
-    required this.category,
-    required this.yearLabel,
-    required this.gradeLevel,
-  });
-
-  final String id;
-  final String studentId;
-  final String name;
-  final String description;
-  final String organization;
-  final String category;
-  final String yearLabel;
-  final int gradeLevel;
-
-  factory Award.fromMap(Map<String, dynamic> row) {
-    return Award(
-      id: row['id'] as String,
-      studentId: row['student_id'] as String,
-      name: row['name'] as String? ?? '',
-      description: row['description'] as String? ?? '',
-      organization: row['organization'] as String? ?? '',
-      category: row['category'] as String? ?? '',
-      yearLabel: row['year_label'] as String? ?? '',
-      gradeLevel: (row['grade_level'] as num?)?.toInt() ?? GradeLevel.grade9.value,
-    );
-  }
-
-  Map<String, dynamic> toRow({required String ownerId}) {
-    return {
-      'owner_id': ownerId,
-      'student_id': studentId,
-      'name': name,
-      'description': description,
-      'organization': organization,
-      'category': category,
-      'year_label': yearLabel,
-      'grade_level': gradeLevel,
-    };
-  }
-}
-
-class Activity {
-  const Activity({
-    required this.id,
-    required this.studentId,
-    required this.type,
-    required this.title,
-    required this.description,
-    required this.organization,
-    required this.hours,
-    required this.yearLabel,
-    required this.gradeLevel,
-  });
-
-  final String id;
-  final String studentId;
-  final String type;
-  final String title;
-  final String description;
-  final String organization;
-  final double hours;
-  final String yearLabel;
-  final int gradeLevel;
-
-  factory Activity.fromMap(Map<String, dynamic> row) {
-    return Activity(
-      id: row['id'] as String,
-      studentId: row['student_id'] as String,
-      type: row['type'] as String? ?? '',
-      title: row['title'] as String? ?? '',
-      description: row['description'] as String? ?? '',
-      organization: row['organization'] as String? ?? '',
-      hours: _parseDouble(row['hours']) ?? 0,
-      yearLabel: row['year_label'] as String? ?? '',
-      gradeLevel: (row['grade_level'] as num?)?.toInt() ?? GradeLevel.grade9.value,
-    );
-  }
-
-  Map<String, dynamic> toRow({required String ownerId}) {
-    return {
-      'owner_id': ownerId,
-      'student_id': studentId,
-      'type': type,
-      'title': title,
-      'description': description,
-      'organization': organization,
-      'hours': hours,
-      'year_label': yearLabel,
-      'grade_level': gradeLevel,
-    };
-  }
-}
-
-class StudentRepository {
-  StudentRepository(this._client);
-
-  final SupabaseClient _client;
-
-  Future<List<StudentRecord>> fetchStudents() async {
-    final data = await _client
-        .from('students')
-        .select('*, enrollments(*), awards(*), activities(*)')
-        .order('created_at');
-    return (data as List<dynamic>)
-        .whereType<Map<String, dynamic>>()
-        .map(StudentRecord.fromMap)
-        .toList();
-  }
-
-  Future<StudentRecord> createStudent(StudentRecord draft) async {
-    final ownerId = _requireUserId();
-    final payload = {
-      'owner_id': ownerId,
-      'first_name': draft.firstName,
-      'last_name': draft.lastName,
-      'date_of_birth': draft.dateOfBirth.toIso8601String(),
-      'target_grad_year': draft.targetGradYear,
-      'email': draft.email,
-      'phone': draft.phone,
-      'address': draft.address,
-      'notes': draft.notes,
-    };
-    final data = await _client
-        .from('students')
-        .insert(payload)
-        .select('*, enrollments(*), awards(*), activities(*)')
-        .single();
-    return StudentRecord.fromMap(data);
-  }
-
-  Future<void> deleteStudent(String id) async {
-    await _client.from('students').delete().eq('id', id);
-  }
-
-  Future<StudentRecord> saveStudent(StudentRecord student) async {
-    final ownerId = _requireUserId();
-    if (student.id.isEmpty) {
-      throw StateError('Student must have an id before saving.');
-    }
-    await _client.from('students').upsert(student.toRow(ownerId: ownerId));
-    await _replaceChildRows(student, ownerId);
-    final updated = await _client
-        .from('students')
-        .select('*, enrollments(*), awards(*), activities(*)')
-        .eq('id', student.id)
-        .single();
-    return StudentRecord.fromMap(updated);
-  }
-
-  Future<void> _replaceChildRows(StudentRecord student, String ownerId) async {
-    final studentId = student.id;
-    await _client.from('enrollments').delete().eq('student_id', studentId);
-    if (student.enrollments.isNotEmpty) {
-      final rows = student.enrollments.map((enrollment) {
-        final row = enrollment.toRow(ownerId: ownerId);
-        row['student_id'] = studentId;
-        return row;
-      }).toList();
-      await _client.from('enrollments').insert(rows);
-    }
-
-    await _client.from('awards').delete().eq('student_id', studentId);
-    if (student.awards.isNotEmpty) {
-      final rows = student.awards.map((award) {
-        final row = award.toRow(ownerId: ownerId);
-        row['student_id'] = studentId;
-        return row;
-      }).toList();
-      await _client.from('awards').insert(rows);
-    }
-
-    await _client.from('activities').delete().eq('student_id', studentId);
-    if (student.activities.isNotEmpty) {
-      final rows = student.activities.map((activity) {
-        final row = activity.toRow(ownerId: ownerId);
-        row['student_id'] = studentId;
-        return row;
-      }).toList();
-      await _client.from('activities').insert(rows);
-    }
-  }
-
-  String _requireUserId() {
-    final userId = _client.auth.currentUser?.id;
-    if (userId == null) {
-      throw StateError('No authenticated user found.');
-    }
-    return userId;
-  }
-}
-
-class ProfileRepository {
-  ProfileRepository(this._client);
-
-  final SupabaseClient _client;
-
-  Future<ProfileRecord> fetchProfile() async {
-    final userId = _requireUserId();
-    final data =
-        await _client.from('profiles').select().eq('id', userId).single();
-    return ProfileRecord.fromMap(data);
-  }
-
-  String _requireUserId() {
-    final userId = _client.auth.currentUser?.id;
-    if (userId == null) {
-      throw StateError('No authenticated user found.');
-    }
-    return userId;
-  }
-}
-
-class BillingRepository {
-  BillingRepository(this._client);
-
-  final SupabaseClient _client;
-
-  static const _checkoutFunction = 'create-checkout-session';
-  static const _portalFunction = 'create-billing-portal-session';
-
-  Future<Uri> createCheckoutSession({
-    required String priceId,
-    required String returnUrl,
-  }) async {
-    final response = await _client.functions.invoke(
-      _checkoutFunction,
-      body: {
-        'price_id': priceId,
-        'success_url': returnUrl,
-        'cancel_url': returnUrl,
-      },
-    );
-    return _extractUrl(response.data);
-  }
-
-  Future<Uri> createPortalSession({required String returnUrl}) async {
-    final response = await _client.functions.invoke(
-      _portalFunction,
-      body: {'return_url': returnUrl},
-    );
-    return _extractUrl(response.data);
-  }
-
-  Uri _extractUrl(dynamic data) {
-    if (data is String && data.isNotEmpty) {
-      return Uri.parse(data);
-    }
-    if (data is Map) {
-      for (final key in const [
-        'url',
-        'checkout_url',
-        'portal_url',
-        'session_url',
-      ]) {
-        final value = data[key];
-        if (value is String && value.isNotEmpty) {
-          return Uri.parse(value);
-        }
-      }
-    }
-    throw StateError('Billing URL missing from function response.');
-  }
-}
-
-class SampleData {
-  static List<StudentRecord> get students => [
-    StudentRecord(
-      id: '1234',
-      firstName: 'John',
-      lastName: 'Smith',
-      dateOfBirth: DateTime(2007, 4, 11),
-      targetGradYear: 2025,
-      email: 'john@example.com',
-      phone: '555-0101',
-      enrollments: [
-        Enrollment(
-          id: 'e1',
-          studentId: '1234',
-          gradeLevel: GradeLevel.grade9,
-          yearLabel: '2023-2024',
-          courseTitle: 'Algebra 1',
-          subjectCategory: 'Math',
-          description:
-              'Basic algebraic concepts including real numbers and expressions.',
-          creditHours: 1,
-          gradeLetter: 'A',
-        ),
-        Enrollment(
-          id: 'e2',
-          studentId: '1234',
-          gradeLevel: GradeLevel.grade9,
-          yearLabel: '2023-2024',
-          courseTitle: 'Biology',
-          subjectCategory: 'Science Lab',
-          description:
-              'The study of life covering topics from cellular structure to ecosystems.',
-          creditHours: 1,
-          gradeLetter: 'A',
-        ),
-        Enrollment(
-          id: 'e3',
-          studentId: '1234',
-          gradeLevel: GradeLevel.grade10,
-          yearLabel: '2024-2025',
-          courseTitle: 'Astronomy',
-          subjectCategory: 'Science',
-          description:
-              'Study of cosmic phenomena and exploration of the solar system.',
-          creditHours: 0.5,
-          gradeLetter: 'A',
-          isWeighted: true,
-          weightMultiplier: 1.05,
-        ),
-      ],
-      awards: [
-        Award(
-          id: 'a1',
-          studentId: '1234',
-          name: 'Teen Volunteer of the Month',
-          description: 'Outstanding service to Loudoun Volunteers.',
-          organization: 'Loudoun Volunteers',
-          category: 'Other',
-          yearLabel: '2023-2024',
-          gradeLevel: 9,
-        ),
-        Award(
-          id: 'a2',
-          studentId: '1234',
-          name: 'Blue Ribbon for Watercolor Landscape',
-          description: 'Best overall artist in age group.',
-          organization: 'Loudoun Arts',
-          category: 'Fine Arts',
-          yearLabel: '2024-2025',
-          gradeLevel: 10,
-        ),
-      ],
-      activities: [
-        Activity(
-          id: 'act1',
-          studentId: '1234',
-          type: 'Camp',
-          title: 'Coding Camp for Teens',
-          description:
-              'Exploratory environment covering Python and Java basics.',
-          organization: 'Loudoun Coders',
-          hours: 20,
-          yearLabel: '2023-2024',
-          gradeLevel: 9,
-        ),
-        Activity(
-          id: 'act2',
-          studentId: '1234',
-          type: 'Volunteer',
-          title: 'Food Bank Shelf Stocker',
-          description: 'Support sorting and restocking donated food.',
-          organization: 'Loudoun Food Bank',
-          hours: 20,
-          yearLabel: '2024-2025',
-          gradeLevel: 10,
-        ),
-      ],
-    ),
-    StudentRecord(
-      id: '1235',
-      firstName: 'Jane',
-      lastName: 'Smith',
-      dateOfBirth: DateTime(2008, 2, 5),
-      targetGradYear: 2026,
-      email: 'jane@example.com',
-      enrollments: [
-        Enrollment(
-          id: 'e4',
-          studentId: '1235',
-          gradeLevel: GradeLevel.grade9,
-          yearLabel: '2023-2024',
-          courseTitle: 'Algebra 1',
-          subjectCategory: 'Math',
-          description:
-              'Basic algebraic concepts including real numbers and expressions.',
-          creditHours: 1,
-          gradeLetter: 'A',
-        ),
-        Enrollment(
-          id: 'e5',
-          studentId: '1235',
-          gradeLevel: GradeLevel.grade9,
-          yearLabel: '2023-2024',
-          courseTitle: 'Biology',
-          subjectCategory: 'Science Lab',
-          description:
-              'Study of life from molecular level to entire ecosystems.',
-          creditHours: 1,
-          gradeLetter: 'A',
-        ),
-        Enrollment(
-          id: 'e6',
-          studentId: '1235',
-          gradeLevel: GradeLevel.grade10,
-          yearLabel: '2024-2025',
-          courseTitle: 'Astronomy',
-          subjectCategory: 'Science',
-          description: 'Examining cosmic phenomena and stellar evolution.',
-          creditHours: 0.5,
-          gradeLetter: 'A',
-        ),
-      ],
-      awards: [
-        Award(
-          id: 'a3',
-          studentId: '1235',
-          name: 'Teen Volunteer of the Month',
-          description:
-              'Recognizes leadership and service for Loudoun Volunteers.',
-          organization: 'Loudoun Volunteers',
-          category: 'Other',
-          yearLabel: '2023-2024',
-          gradeLevel: 9,
-        ),
-        Award(
-          id: 'a4',
-          studentId: '1235',
-          name: 'Blue Ribbon for Watercolor Landscape',
-          description: 'Top recognition at Loudoun Arts showcase.',
-          organization: 'Loudoun Arts',
-          category: 'Fine Arts',
-          yearLabel: '2024-2025',
-          gradeLevel: 10,
-        ),
-      ],
-      activities: [
-        Activity(
-          id: 'act3',
-          studentId: '1235',
-          type: 'Camp',
-          title: 'Coding Camp for Teens',
-          description: 'Intro to collaborative coding and project work.',
-          organization: 'Loudoun Coders',
-          hours: 26,
-          yearLabel: '2023-2024',
-          gradeLevel: 9,
-        ),
-        Activity(
-          id: 'act4',
-          studentId: '1235',
-          type: 'Volunteer',
-          title: 'Food Bank Shelf Stocker',
-          description: 'Weekly stocking support for community pantry.',
-          organization: 'Loudoun Food Bank',
-          hours: 28.2,
-          yearLabel: '2024-2025',
-          gradeLevel: 10,
-        ),
-        Activity(
-          id: 'act5',
-          studentId: '1235',
-          type: 'Theater',
-          title: 'The Lion, The Witch and The Wardrobe',
-          description: 'Collaborative performance with Not Just Dance.',
-          organization: 'Not Just Dance',
-          hours: 32.6,
-          yearLabel: '2024-2025',
-          gradeLevel: 10,
-        ),
-      ],
-    ),
-  ];
-}
-
 class _AcademicYearGroup {
   _AcademicYearGroup(this.gradeLevel, this.yearLabel, this.enrollments);
 
@@ -4242,13 +3238,13 @@ List<_AcademicYearGroup> _groupEnrollments(List<Enrollment> enrollments) {
     );
   }).toList();
   groups.sort((a, b) {
-    final gradeCompare =
-        a.gradeLevel.value.compareTo(b.gradeLevel.value);
+    final gradeCompare = a.gradeLevel.value.compareTo(b.gradeLevel.value);
     if (gradeCompare != 0) {
       return gradeCompare;
     }
-    final yearCompare =
-        _yearSortKey(a.yearLabel).compareTo(_yearSortKey(b.yearLabel));
+    final yearCompare = _yearSortKey(
+      a.yearLabel,
+    ).compareTo(_yearSortKey(b.yearLabel));
     if (yearCompare != 0) {
       return yearCompare;
     }
@@ -4264,22 +3260,6 @@ int _yearSortKey(String label) {
   }
   return 0;
 }
-
-final Map<String, double> _gradePointTable = {
-  'A+': 4.0,
-  'A': 4.0,
-  'A-': 3.7,
-  'B+': 3.3,
-  'B': 3.0,
-  'B-': 2.7,
-  'C+': 2.3,
-  'C': 2.0,
-  'C-': 1.7,
-  'D+': 1.3,
-  'D': 1.0,
-  'D-': 0.7,
-  'F': 0.0,
-};
 
 String _formatDate(DateTime date) {
   const months = [
@@ -4298,34 +3278,4 @@ String _formatDate(DateTime date) {
   ];
   final month = months[date.month - 1];
   return '$month ${date.day}, ${date.year}';
-}
-
-List<Map<String, dynamic>> _asList(dynamic value) {
-  if (value is List) {
-    return value.whereType<Map<String, dynamic>>().toList();
-  }
-  return const [];
-}
-
-DateTime? _parseDate(dynamic value) {
-  if (value == null) return null;
-  if (value is DateTime) return value.toUtc();
-  if (value is String && value.isNotEmpty) {
-    return DateTime.tryParse(value);
-  }
-  return null;
-}
-
-double? _parseDouble(dynamic value) {
-  if (value == null) return null;
-  if (value is num) return value.toDouble();
-  if (value is String) return double.tryParse(value);
-  return null;
-}
-
-GradeLevel _gradeLevelFromValue(int value) {
-  return GradeLevel.values.firstWhere(
-    (level) => level.value == value,
-    orElse: () => GradeLevel.grade9,
-  );
 }

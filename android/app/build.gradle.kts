@@ -29,7 +29,9 @@ android {
         versionName = flutter.versionName
     }
 
+    val releaseKeys = rootProject.file("key.properties")
     signingConfigs {
+      if (releaseKeys.exists()) {
         create("release") {
             val keystoreProperties = Properties().apply {
                 load(rootProject.file("key.properties").inputStream())
@@ -42,9 +44,11 @@ android {
         }
     }
 
+    }
+
     buildTypes {
         getByName("release") {
-            signingConfig = signingConfigs.getByName("release")
+            if (releaseKeys.exists()) signingConfig = signingConfigs.getByName("release")
             // Optional hardening:
             // isMinifyEnabled = true
             // isShrinkResources = true
