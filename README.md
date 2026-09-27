@@ -4,9 +4,11 @@ A free, local-file homeschool transcript builder. Record courses, calculate GPA,
 track awards and activities, and export a printable PDF. No accounts, subscriptions,
 API keys, database, or application server.
 
-**Release candidate:** the browser build is the primary supported target. Native
+[**Open Homeschool Transcript Maker**](https://bitofastickler.github.io/transcript_maker/)
+
+The browser build is the primary supported target. Native
 platform projects are included for contributors; signed desktop/mobile releases
-are not yet verified or distributed. A public hosted URL will be added after release approval.
+are not yet verified or distributed.
 
 ## Using it
 
