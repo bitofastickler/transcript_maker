@@ -47,7 +47,7 @@ that specific issue was already fixed in the current baseline and is not a new f
   failed-save state, GPA rules, startup, dirty navigation, mobile layout, and long PDFs.
 - Release web build with `--no-web-resources-cdn` bundles rendering assets locally.
 - PDF stress fixture: 80 courses, accented name, quarter credits, award and fractional
-  activity hours. Generated three pages; first/last page visual inspection confirmed
+  activity hours. Generated multiple pages; first/last page visual inspection confirmed
   table flow and legibility (initial pagination failure was fixed).
 - Edge browser: local app opens without configuration; built-in fictional example
   loads with GPA 4.00 / credits 1.00. Browser download produced `transcript-records.json`;

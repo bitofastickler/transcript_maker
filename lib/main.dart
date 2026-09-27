@@ -3022,12 +3022,14 @@ class TranscriptPdfService {
             ...yearGroups.expand(_yearSection),
           ],
           if (student.awards.isNotEmpty) ...[
+            pw.NewPage(freeSpace: 110),
             pw.SizedBox(height: 24),
             pw.Text('Awards & Recognitions', style: _sectionTitle),
             pw.SizedBox(height: 8),
             _awardsSection(student.awards),
           ],
           if (student.activities.isNotEmpty) ...[
+            pw.NewPage(freeSpace: 110),
             pw.SizedBox(height: 24),
             pw.Text('Activities', style: _sectionTitle),
             pw.SizedBox(height: 8),
