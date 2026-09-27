@@ -76,10 +76,7 @@ unsupported, oversized, or inconsistent files are rejected before replacing work
 
 ## Hosting on GitHub
 
-GitHub Pages serves the static app; no Supabase, Stripe, Render, or paid service
-is needed. The [Pages workflow](.github/workflows/pages.yml) runs **manually** only,
-with build and test checks before deployment. Set repository Settings > Pages >
-Source to GitHub Actions and run the workflow after approving a release. The workflow
+GitHub Pages serves the static app. The workflow
 sets the project base path from the repository name. Custom domains need a root base path.
 The source repository's public visibility and Pages hosting are separate settings.
 
