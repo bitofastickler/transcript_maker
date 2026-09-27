@@ -3,7 +3,7 @@
 Prepared locally; publication is a separate final action.
 
 - [ ] Maintainer confirms code/logo ownership and MIT licensing to Stickler LLC.
-- [ ] Confirm sample records in existing Git history are fictional or approved for publication.
+- [x] Maintainer confirmed historical John/Jane Smith sample records are fictional and safe to publish (2026-09-26).
 - [ ] Re-scan all publication refs and review binary assets, releases, workflow artifacts and logs.
 - [ ] Review the local browser preview, JSON save/reopen, and PDF output.
 - [ ] CI analysis/tests/web build pass on the actual PR commit.

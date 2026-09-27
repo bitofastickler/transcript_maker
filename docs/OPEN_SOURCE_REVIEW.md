@@ -42,7 +42,7 @@ that specific issue was already fixed in the current baseline and is not a new f
 ## Verification evidence
 
 - Flutter 3.35.7 / Dart 3.9.2; no backend/environment secrets used for builds/tests.
-- Unit/widget tests cover JSON round-trips, invalid/future versions, foreign child IDs,
+- All 13 unit/widget tests pass; analyzer reports no issues. Tests cover JSON round-trips, invalid/future versions, foreign child IDs,
   duplicate IDs, malformed/oversized files, invalid dates/grades/credits, save cancellation,
   failed-save state, GPA rules, startup, dirty navigation, mobile layout, and long PDFs.
 - Release web build with `--no-web-resources-cdn` bundles rendering assets locally.
@@ -58,7 +58,7 @@ that specific issue was already fixed in the current baseline and is not a new f
 - Automated typing into Flutter's numeric semantics field was inconsistent; full new-student
   browser entry is not counted as passed. Form/draft widget behavior is tested. Human walkthrough
   before publication remains valuable.
-- Gitleaks 8.30.1: all 24 existing commits, zero findings. Official release archive SHA-256
+- Gitleaks 8.30.1: all 24 baseline commits and the 25-commit conversion history, zero findings. Official release archive SHA-256
   verified against upstream checksums. Supplementary pattern scan: 191 unique Git blobs,
   no credential-pattern matches. These scans cannot establish that all personal information
   or secrets are absent.
@@ -86,8 +86,9 @@ policy checks, or hosted Pages deployment were performed.
 
 ## Publication boundary
 
-Keep the repository private until the maintainer confirms ownership, licensing, and the
-historical sample records. Public history can be copied even if visibility is later reversed.
+The maintainer confirmed the historical John/Jane Smith samples are fictional and safe
+to publish on September 26, 2026. Keep the repository private until final release approval,
+including the prepared MIT license. Public history can be copied even if visibility is later reversed.
 Review the preview and PR, then explicitly approve public visibility and Pages deployment.
 No live Squarespace copy, hosting project, database, or Stripe subscription was changed.
 
